@@ -16,12 +16,14 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     public static bool PreviewActive;
     public static int PreviewW = 1, PreviewH = 1;
     public static Game.Match.Grid.GridService PreviewGrid;
+    public bool IsDragging { get; private set; }
 
     [Header("Placement")]
     [SerializeField] private GridService grid;     // auto-filled in Awake if null
     [SerializeField] private LayerMask gridMask;   // set to your Grid layer in Inspector
     [SerializeField] private Transform unitsParent;
     [SerializeField] private bool destroyOnPlace = true;
+    [SerializeField] public RectTransform handContainer;   // set by HandView
 
     RectTransform rt;
     CanvasGroup cg;
@@ -40,13 +42,23 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnBeginDrag(PointerEventData e)
     {
-        startPos = rt.position;
+        IsDragging = true;
+        startSibling = transform.GetSiblingIndex();
+
+        // remember BEFORE moving to HoverLayer
         startParent = transform.parent;
         startSibling = transform.GetSiblingIndex();
+        startPos = rt.position;
+
+        // now move to HoverLayer for unclipped hover/drag
+        var fx = GetComponent<CardHoverFX>();
+        if (fx) fx.AttachToHoverLayer();
+
+        transform.SetAsLastSibling();
+
         if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
         cg.blocksRaycasts = false;
         cg.alpha = 0.9f;
-
         var soBegin = instance != null ? instance.data : null;
         bool isUnitBegin = (soBegin != null && soBegin.type == Game.Core.CardType.Unit);
 
@@ -84,10 +96,13 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     }
     public void OnEndDrag(PointerEventData e)
     {
+        IsDragging = false;
         cg.blocksRaycasts = true;
         cg.alpha = 1f;
 
         if (instance == null || grid == null) { SnapBack(); return; }
+        var fx = GetComponent<CardHoverFX>();
+        IsDragging = false;
 
         var so = instance.data;
 
@@ -163,10 +178,30 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     void SnapBack()
     {
-        PreviewActive = false;                 // <— clear
-        rt.position = startPos;
-        transform.SetParent(startParent, worldPositionStays: true);
+        // 1) Always reparent to the hand container we were born in.
+        if (handContainer)
+            transform.SetParent(handContainer, worldPositionStays: false);
+        else if (startParent) // fallback
+            transform.SetParent(startParent, worldPositionStays: false);
+
+        // 2) Restore sibling order in the hand.
         transform.SetSiblingIndex(startSibling);
+
+        // 3) Re-apply the saved pose from the fan.
+        var rt = (RectTransform)transform;
+        var anchor = GetComponent<HandCardAnchor>();
+        if (anchor) anchor.ApplyTo(rt);
+
+        // 4) Ask the fan to recompute (safe if null).
+        var fan = GetComponentInParent<FannedHandLayout>();
+        if (!fan) fan = FindObjectOfType<FannedHandLayout>();
+        if (fan) fan.RebuildImmediate();
+
+        // 5) Restore drag visuals.
+        if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
+        var fx = GetComponent<CardHoverFX>();
+        if (fx) fx.ReturnToOriginalParent();   // harmless if already in hand
+        IsDragging = false;
     }
     void ToggleDebugPreviews(bool enable)
     {
