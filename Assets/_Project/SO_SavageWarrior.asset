@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
+  m_Name: SO_SavageWarrior
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
+  cardName: Savage Warrior
+  rulesText: When health drops below 25% gains 2 "Savage" tokens.
+  type: 0
+  realm: 1
+  race: 1
+  sizeW: 2
+  sizeH: 2
+  manaStars: 2
+  attack: 10
+  health: 350
+  attackMode: 0
+  rangeMeters: 1
+  artSprite: {fileID: 21300000, guid: 4cb6380e2d49cfa43b80021a186c90be, type: 3}
+  unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
+  isLegend: 0
