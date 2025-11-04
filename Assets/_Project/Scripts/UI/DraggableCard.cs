@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using System;
@@ -12,6 +12,10 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     public CardInstance instance;                  // runtime card
     public MonoBehaviour placer;                   // optional: keep for compatibility (unused)
     public object mana;                            // optional: keep for compatibility (unused)
+
+    public static bool PreviewActive;
+    public static int PreviewW = 1, PreviewH = 1;
+    public static Game.Match.Grid.GridService PreviewGrid;
 
     [Header("Placement")]
     [SerializeField] private GridService grid;     // auto-filled in Awake if null
@@ -42,8 +46,26 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
         cg.blocksRaycasts = false;
         cg.alpha = 0.9f;
-    }
 
+        var soBegin = instance != null ? instance.data : null;
+        bool isUnitBegin = (soBegin != null && soBegin.type == Game.Core.CardType.Unit);
+
+        if (isUnitBegin)
+        {
+            GetFootprintInts(soBegin, out int w, out int h);
+            PreviewW = w;
+            PreviewH = h;
+            PreviewGrid = grid != null ? grid : FindObjectOfType<Game.Match.Grid.GridService>();
+            PreviewActive = true;
+        }
+        else
+        {
+            PreviewActive = false;
+        }
+
+        // If you kept the toggler, keep this one line:
+        ToggleDebugPreviews(isUnitBegin);
+    }
     public void OnDrag(PointerEventData e)
     {
         if (rt == null) rt = GetComponent<RectTransform>();
@@ -65,50 +87,74 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         cg.blocksRaycasts = true;
         cg.alpha = 1f;
 
-        var cam = e.pressEventCamera != null ? e.pressEventCamera : Camera.main;
-        if (cam == null || grid == null || instance == null) { SnapBack(); return; }
+        if (instance == null || grid == null) { SnapBack(); return; }
 
-        var ray = cam.ScreenPointToRay(e.position);
-        if (!Physics.Raycast(ray, out var hit, 1000f, gridMask)) { SnapBack(); return; }
-
-        // Footprint + prefab from SO (no SizeClass dependency)
         var so = instance.data;
-        GetFootprintInts(so, out int w, out int h);               // 1..4
-        var unitPrefab = GetPrefab(so, "unitPrefab", "prefab", "unit");
 
-        var origin = CenteredOrigin(grid, hit.point, w, h);
+        // ---------- SPELLS / TRAPS ----------
+        if (so.type != Game.Core.CardType.Unit)
+        {
+            // No footprint while dragging; only consume if dropped ON the grid
+            // Choose a camera (same pattern you used in OnDrag)
+            var canvas = GetComponentInParent<Canvas>();
+            Camera cam = e.pressEventCamera;
+            if (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay) cam = null;
+            if (cam == null && canvas != null && canvas.worldCamera != null) cam = canvas.worldCamera;
+            if (cam == null) cam = Camera.main;
 
+            if (cam != null)
+            {
+                var ray = cam.ScreenPointToRay(e.position);
+                int mask = (gridMask.value == 0) ? ~0 : gridMask.value;
+
+                if (Physics.Raycast(ray, out var hit, 1000f, mask))
+                {
+                    // Hit the board → play & consume (no placement)
+                    Debug.Log($"[DraggableCard] Played {so.type}: {so.cardName} on grid.");
+                    ToggleDebugPreviews(true);
+                    Destroy(gameObject);
+                    return;
+                }
+            }
+
+            // Didn’t hit the board → return to hand
+            ToggleDebugPreviews(true);
+            SnapBack();
+            return;
+        }
+
+        // ---------- UNITS (unchanged) ----------
+        var camU = e.pressEventCamera != null ? e.pressEventCamera : Camera.main;
+        if (camU == null) { SnapBack(); return; }
+
+        var rayU = camU.ScreenPointToRay(e.position);
+        if (!Physics.Raycast(rayU, out var hitU, 1000f, gridMask)) { SnapBack(); return; }
+        ToggleDebugPreviews(true);
+
+        GetFootprintInts(so, out int w, out int h);
+        var origin = CenteredOrigin(grid, hitU.point, w, h);
         if (!grid.CanPlaceRect(origin, w, h)) { SnapBack(); return; }
         grid.PlaceRect(origin, w, h);
 
+        var unitPrefab = GetPrefab(so, "unitPrefab", "prefab", "unit");
         if (unitPrefab != null)
         {
-            // Start from the origin tile's CENTER, then offset by half the footprint
-            Vector3 center = grid.TileCenterToWorld(origin, 0f);
-            center += new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
+            Vector3 center = grid.TileCenterToWorld(origin, 0f)
+                           + new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
 
-            // Instantiate first, then lift to sit on the ground
             var go = Instantiate(unitPrefab, center, Quaternion.identity, unitsParent);
 
-            // Ground Y is the grid root's Y (adjust if your board lives elsewhere)
             float groundY = grid.transform.position.y;
-
-            // Use collider or renderer to compute half-height
             var col = go.GetComponentInChildren<Collider>();
             var rend = (col == null) ? go.GetComponentInChildren<Renderer>() : null;
             float halfH = 0.5f;
             if (col != null) halfH = col.bounds.extents.y;
             else if (rend != null) halfH = rend.bounds.extents.y;
 
-            // Apply final Y so the feet sit on the board
-            var p = go.transform.position;
-            p.y = groundY + halfH;
-            go.transform.position = p;
+            var p = go.transform.position; p.y = groundY + halfH; go.transform.position = p;
 
-            // Optional: init your debug stats/tint
             var ur = go.GetComponent<Game.Match.Units.UnitRuntime>();
             if (ur != null) ur.InitFrom(so);
-
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
         }
 
@@ -117,11 +163,25 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     void SnapBack()
     {
+        PreviewActive = false;                 // <— clear
         rt.position = startPos;
         transform.SetParent(startParent, worldPositionStays: true);
         transform.SetSiblingIndex(startSibling);
     }
-
+    void ToggleDebugPreviews(bool enable)
+    {
+        // Toggle ONLY the preview/old test scripts by type name
+        var behaviours = GameObject.FindObjectsOfType<MonoBehaviour>(true);
+        foreach (var b in behaviours)
+        {
+            if (b == null) continue;
+            var tn = b.GetType().Name;
+            if (tn == "FootprintPreviewRect" || tn == "FootprintPreview" || tn == "PlaceCubeTest")
+            {
+                b.enabled = enable;
+            }
+        }
+    }
     // ---------- Helpers ----------
     static Vector2Int CenteredOrigin(GridService grid, Vector3 world, int w, int h)
     {
