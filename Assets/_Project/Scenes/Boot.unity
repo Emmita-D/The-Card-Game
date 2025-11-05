@@ -509,7 +509,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FannedHandLayout
   baseScale: 0.6
-  baseSpread: 200
+  baseSpread: 300
   spreadPerCard: 26
   baseArc: -10
   arcPerCard: 5
@@ -517,6 +517,9 @@ MonoBehaviour:
   maxAngle: 4
   angleAtCards: 4
   sortMode: 0
+  hoverGap: 210
+  hoverFalloff: 0.8
+  closeAnimTime: 0.3
 --- !u!1 &1096627216
 GameObject:
   m_ObjectHideFlags: 0
