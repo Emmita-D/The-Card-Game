@@ -1,11 +1,10 @@
 ﻿using UnityEngine;
-using System.Collections.Generic; // << NEW
 
 [DisallowMultipleComponent]
 public class FannedHandLayout : MonoBehaviour
 {
     [Header("Shape")]
-    [Range(0.3f, 1.2f)] public float baseScale = 0.6f;
+    [Range(0.3f, 1.0f)] public float baseScale = 0.5f;
     public float baseSpread = 210f;
     public float spreadPerCard = 10f;
     public float baseArc = 18f;
@@ -16,26 +15,65 @@ public class FannedHandLayout : MonoBehaviour
 
     public enum SortMode { LeftToRight, CenterOnTop }
     [Header("Sorting")]
-    public SortMode sortMode = SortMode.CenterOnTop;
+    public SortMode sortMode = SortMode.LeftToRight;   // rightmost on top
+
+    [Header("Hover give-room")]
+    public float hoverGap = 140f;                      // horizontal space created at hovered index
+    [Range(0.05f, 0.95f)] public float hoverFalloff = 0.6f; // each step away gets this fraction
+    public float closeAnimTime = 0.18f;                // smoothing for neighbors
 
     RectTransform rt;
-    bool suppress; // << keep
+    int hoverIndex = -1;                               // -1 => no hover
 
     void Awake() { rt = (RectTransform)transform; }
     void OnEnable() { RebuildImmediate(); }
+    void OnTransformChildrenChanged() => RebuildImmediate();
 
-    void OnTransformChildrenChanged()
+    void LateUpdate()
     {
-        if (suppress) return; // ignore sibling swaps during hover/drag
-        RebuildImmediate();
-    }
+        // Smooth neighbor motion each frame
+        if (rt == null) return;
+        int n = rt.childCount;
+        if (n == 0) return;
 
-    public void BeginSuppressLayout() => suppress = true;
-    public void EndSuppressLayout() => suppress = false;
+        float alpha = 1f - Mathf.Exp(-Time.unscaledDeltaTime / Mathf.Max(0.01f, closeAnimTime));
+
+        for (int i = 0; i < n; i++)
+        {
+            var c = rt.GetChild(i) as RectTransform; if (!c) continue;
+            var anchor = c.GetComponent<HandCardAnchor>(); if (!anchor) continue;
+
+            // Skip hovered/dragged cards — they animate themselves
+            var fx = c.GetComponent<CardHoverFX>();
+            var drag = c.GetComponent<DraggableCard>();
+            bool busy = (fx && fx.IsHovering) || (drag && drag.IsDragging);
+            if (busy) continue;
+
+            // Target pose = base pose +/- horizontal offset if a card is hovered
+            Vector2 targetPos = anchor.basePos;
+            if (hoverIndex >= 0 && hoverIndex < n)
+            {
+                int d = i - hoverIndex;
+                if (d != 0)
+                {
+                    float sign = Mathf.Sign(d);
+                    float steps = Mathf.Abs(d) - 1f;           // neighbors closer move more
+                    float push = hoverGap * Mathf.Pow(hoverFalloff, Mathf.Max(0f, steps));
+                    targetPos.x += push * sign;
+                }
+            }
+
+            // Smoothly move non-busy cards toward their target (scale & rot stay base)
+            c.anchoredPosition = Vector2.Lerp(c.anchoredPosition, targetPos, alpha);
+            c.localRotation = Quaternion.Slerp(c.localRotation, anchor.baseRot, alpha);
+            float s = Mathf.Lerp(c.localScale.x, anchor.baseScale, alpha);
+            c.localScale = new Vector3(s, s, 1f);
+        }
+    }
 
     public void RebuildImmediate()
     {
-        if (!rt) rt = (RectTransform)transform;
+        if (rt == null) rt = (RectTransform)transform;
         int n = rt.childCount;
         if (n == 0) return;
 
@@ -47,58 +85,50 @@ public class FannedHandLayout : MonoBehaviour
 
         for (int i = 0; i < n; i++)
         {
-            var c = rt.GetChild(i) as RectTransform;
-            if (!c) continue;
+            var c = rt.GetChild(i) as RectTransform; if (!c) continue;
 
             float t = (n == 1) ? 0f : (i - mid) / mid; // -1..+1
             float x = t * spread;
             float y = -(t * t) * arc;
-            float zRot = -t * angAmp;
+            float zRot = -t * angAmp;                     // outward tilt
 
             var anchor = c.GetComponent<HandCardAnchor>() ?? c.gameObject.AddComponent<HandCardAnchor>();
             anchor.basePos = new Vector2(x, y);
             anchor.baseRot = Quaternion.Euler(0, 0, zRot);
             anchor.baseScale = baseScale;
 
+            // Z-order: rightmost on top when LeftToRight
             int order;
             if (sortMode == SortMode.LeftToRight) order = 100 + i;
-            else
-            {
-                float distFromCenter = Mathf.Abs(i - mid);
-                order = 10000 - Mathf.RoundToInt(distFromCenter * 100f) * 10 + i;
-            }
+            else /* CenterOnTop */                 order = 10000 - Mathf.RoundToInt(Mathf.Abs(i - mid) * 100f) * 10 + i;
             anchor.baseOrder = order;
 
             var fx = c.GetComponent<CardHoverFX>();
+            if (fx) { fx.SetBaseScale(baseScale); fx.SetBaseRenderOrder(anchor.baseOrder); }
+
             var drag = c.GetComponent<DraggableCard>();
             bool busy = (fx && fx.IsHovering) || (drag && drag.IsDragging);
             if (!busy) anchor.ApplyTo(c);
         }
     }
 
-    // << NEW: restore a stable “stair” sibling order for all cards
-    public void RestoreStableSiblingOrder()
+    // Called by CardHoverFX
+    public void OnCardHoverEnter(CardHoverFX who)
     {
-        if (!rt) rt = (RectTransform)transform;
-        var list = new List<RectTransform>(rt.childCount);
+        hoverIndex = IndexOf((RectTransform)who.transform);
+        // neighbors will slide in LateUpdate
+    }
+    public void OnCardHoverExit(CardHoverFX who)
+    {
+        if (IndexOf((RectTransform)who.transform) == hoverIndex)
+            hoverIndex = -1; // neighbors slide back in LateUpdate
+    }
+
+    int IndexOf(RectTransform child)
+    {
+        if (!child || child.parent != rt) return -1;
         for (int i = 0; i < rt.childCount; i++)
-        {
-            var c = rt.GetChild(i) as RectTransform;
-            if (c) list.Add(c);
-        }
-
-        list.Sort((a, b) =>
-        {
-            var aa = a.GetComponent<HandCardAnchor>();
-            var bb = b.GetComponent<HandCardAnchor>();
-            int ao = aa ? aa.baseOrder : 0;
-            int bo = bb ? bb.baseOrder : 0;
-            return ao.CompareTo(bo);
-        });
-
-        BeginSuppressLayout();
-        for (int i = 0; i < list.Count; i++)
-            list[i].SetSiblingIndex(i);
-        EndSuppressLayout();
+            if (rt.GetChild(i) == child) return i;
+        return -1;
     }
 }

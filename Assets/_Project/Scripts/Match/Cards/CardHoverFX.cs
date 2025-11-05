@@ -7,82 +7,124 @@ using System.Collections;
 public class CardHoverFX : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
     [Header("Scale & Lift")]
-    [SerializeField] float baseScale = 0.6f;       // set by layout
+    [SerializeField] float baseScale = 0.5f;           // set by fan
     [SerializeField] float hoverMultiplier = 1.45f;
-    [SerializeField] float liftY = 160f;
-    [SerializeField] float animTime = 0.12f;
+    [SerializeField] float liftY = 72f;
+    [SerializeField] float animTime = 0.10f;
 
-    [Header("Optional")]
-    [SerializeField] Image hoverGlow;
+    [Header("Optional visuals")]
+    [SerializeField] Image hoverGlow;                  // e.g., CardView/HoverGlow
 
     RectTransform rt;
     HandCardAnchor anchor;
-    FannedHandLayout fan; // << NEW: we’ll ask layout to restore global order
+    FannedHandLayout fan;
+
+    // Overlay (no reparenting)
+    Canvas overlayCanvas;
+    GraphicRaycaster raycaster;
 
     bool hovering;
-    public bool IsHovering => hovering;
+    bool dragLock;
+    bool canHover = true;
+    int baseOrder = 0;
 
-    int baseSibling;
-    bool dragLocked;
+    public bool IsHovering => hovering;
 
     void Awake()
     {
         rt = (RectTransform)transform;
         anchor = GetComponent<HandCardAnchor>() ?? gameObject.AddComponent<HandCardAnchor>();
-        fan = GetComponentInParent<FannedHandLayout>(); // << NEW
+        fan = GetComponentInParent<FannedHandLayout>();
+
+        overlayCanvas = GetComponent<Canvas>();
+        if (!overlayCanvas) overlayCanvas = gameObject.AddComponent<Canvas>();
+        raycaster = GetComponent<GraphicRaycaster>();
+        if (!raycaster) raycaster = gameObject.AddComponent<GraphicRaycaster>();
+
+        overlayCanvas.overrideSorting = false;
+        overlayCanvas.sortingOrder = 0;
     }
 
     void OnEnable()
     {
-        if (anchor) anchor.ApplyTo(rt);
         if (hoverGlow) hoverGlow.enabled = false;
         hovering = false;
-        dragLocked = false;
+        dragLock = false;
+        canHover = true;
+
+        overlayCanvas.overrideSorting = false;
+        overlayCanvas.sortingOrder = baseOrder;
     }
 
-    public void InjectHoverLayer(RectTransform _ignored) { /* baseline: no overlay layer */ }
+    // --- Compatibility with older HandView code (no-op now) ---
+    public void InjectHoverLayer(RectTransform _ignored) { /* intentionally empty */ }
 
-    public void ForceToBasePose()
-    {
-        if (anchor) anchor.ApplyTo(rt);
-        if (hoverGlow) hoverGlow.enabled = false;
-        hovering = false;
-        dragLocked = false;
-
-        // We used to restore to a cached sibling; instead, normalize whole hand:
-        fan?.RestoreStableSiblingOrder();
-    }
-
+    // --- API used by the fan ---
     public void SetBaseScale(float s)
     {
         baseScale = s;
-        if (!hovering && !dragLocked) rt.localScale = Vector3.one * baseScale;
+        if (!hovering && !dragLock) rt.localScale = Vector3.one * baseScale;
     }
-    public void SetBaseRenderOrder(int order) { /* no-op */ }
 
+    public void SetBaseRenderOrder(int order)
+    {
+        baseOrder = order;
+        if (!hovering && !overlayCanvas.overrideSorting)
+            overlayCanvas.sortingOrder = baseOrder;
+    }
+
+    // --- API used by DraggableCard ---
+    public void BeginDragLock()
+    {
+        dragLock = true;
+        CancelHoverNow();      // ensure we’re not in hovered pose
+        EnableOverlay(true);   // keep dragged card on top
+    }
+
+    public void EndDragUnlock(float dropOverlayDelay = 0.08f)
+    {
+        StartCoroutine(CoEndDrag(dropOverlayDelay));
+    }
+
+    IEnumerator CoEndDrag(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        dragLock = false;
+        EnableOverlay(false);
+        fan?.RebuildImmediate();
+    }
+
+    public void ForceToBasePose()
+    {
+        StopAllCoroutines();
+        hovering = false;
+        canHover = true;
+
+        anchor.ApplyTo(rt);
+        if (hoverGlow) hoverGlow.enabled = false;
+        EnableOverlay(false);
+    }
+
+    // --- Pointer handlers ---
     public void OnPointerEnter(PointerEventData e)
     {
-        if (dragLocked) return;
+        if (dragLock || !canHover) return;
         hovering = true;
 
-        baseSibling = transform.GetSiblingIndex();
-
-        // draw above neighbors but don’t let layout respond mid-hover
-        fan?.BeginSuppressLayout();
-        transform.SetAsLastSibling();
-        fan?.EndSuppressLayout();
-
+        EnableOverlay(true);
         if (hoverGlow) hoverGlow.enabled = true;
 
         StopAllCoroutines();
-        StartCoroutine(AnimTo(anchor.basePos + Vector2.up * liftY,
-                              baseScale * hoverMultiplier,
-                              Quaternion.identity));
+        StartCoroutine(AnimateTo(anchor.basePos + Vector2.up * liftY,
+                                 Quaternion.identity,                 // straighten on hover
+                                 baseScale * hoverMultiplier));
+
+        fan?.OnCardHoverEnter(this);
     }
 
     public void OnPointerExit(PointerEventData e)
     {
-        if (dragLocked) return;
+        if (dragLock) return;
         hovering = false;
         if (hoverGlow) hoverGlow.enabled = false;
 
@@ -90,74 +132,77 @@ public class CardHoverFX : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         StartCoroutine(ReturnToBase());
     }
 
-    public void BeginDragLock()
+    // --- Anim helpers ---
+    IEnumerator AnimateTo(Vector2 targetPos, Quaternion targetRot, float targetScale)
     {
-        dragLocked = true;
-        hovering = false;
-        if (hoverGlow) hoverGlow.enabled = false;
+        Vector2 startPos = rt.anchoredPosition;
+        Quaternion startRot = rt.localRotation;
+        float startS = rt.localScale.x;
 
-        fan?.BeginSuppressLayout();
-        transform.SetAsLastSibling();
-        fan?.EndSuppressLayout();
-    }
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.unscaledDeltaTime / animTime;
+            float k = Mathf.SmoothStep(0f, 1f, t);
 
-    public void EndDragUnlock(float delay = 0.10f)
-    {
-        StartCoroutine(_EndDragUnlock(delay));
-    }
+            rt.anchoredPosition = Vector2.Lerp(startPos, targetPos, k);
+            rt.localRotation = Quaternion.Slerp(startRot, targetRot, k);
+            float s = Mathf.Lerp(startS, targetScale, k);
+            rt.localScale = new Vector3(s, s, 1f);
+            yield return null;
+        }
 
-    IEnumerator _EndDragUnlock(float delay)
-    {
-        yield return new WaitForSecondsRealtime(delay);
-        dragLocked = false;
-
-        if (anchor) anchor.ApplyTo(rt);
-        // Normalize the entire hand to a stable stair order
-        fan?.RestoreStableSiblingOrder();
+        rt.anchoredPosition = targetPos;
+        rt.localRotation = targetRot;
+        rt.localScale = new Vector3(targetScale, targetScale, 1f);
     }
 
     IEnumerator ReturnToBase()
     {
-        Vector2 p0 = rt.anchoredPosition, p1 = anchor.basePos;
-        float s0 = rt.localScale.x, s1 = anchor.baseScale;
-        Quaternion r0 = rt.localRotation, r1 = anchor.baseRot;
+        canHover = false;
+
+        Vector2 startPos = rt.anchoredPosition;
+        Quaternion startRot = rt.localRotation;
+        float startS = rt.localScale.x;
+
+        Vector2 targetPos = anchor.basePos;
+        Quaternion targetRot = anchor.baseRot;
+        float targetS = anchor.baseScale;
 
         float t = 0f;
         while (t < 1f)
         {
             t += Time.unscaledDeltaTime / animTime;
             float k = Mathf.SmoothStep(0f, 1f, t);
-            rt.anchoredPosition = Vector2.Lerp(p0, p1, k);
-            float s = Mathf.Lerp(s0, s1, k);
+
+            rt.anchoredPosition = Vector2.Lerp(startPos, targetPos, k);
+            rt.localRotation = Quaternion.Slerp(startRot, targetRot, k);
+            float s = Mathf.Lerp(startS, targetS, k);
             rt.localScale = new Vector3(s, s, 1f);
-            rt.localRotation = Quaternion.Slerp(r0, r1, k);
             yield return null;
         }
 
         anchor.ApplyTo(rt);
-        // Normalize the entire hand to a stable stair order
-        fan?.RestoreStableSiblingOrder();
+        EnableOverlay(false);
+        fan?.OnCardHoverExit(this);   // tell the fan hover ended
+        fan?.RebuildImmediate();
+
+        canHover = true;
     }
 
-    IEnumerator AnimTo(Vector2 targetPos, float targetScale, Quaternion targetRot)
+    void CancelHoverNow()
     {
-        Vector2 p0 = rt.anchoredPosition;
-        float s0 = rt.localScale.x;
-        Quaternion r0 = rt.localRotation;
+        StopAllCoroutines();
+        hovering = false;
+        if (hoverGlow) hoverGlow.enabled = false;
+        anchor.ApplyTo(rt);
+        EnableOverlay(false);
+        fan?.RebuildImmediate();
+    }
 
-        float t = 0f;
-        while (t < 1f)
-        {
-            t += Time.unscaledDeltaTime / animTime;
-            float k = Mathf.SmoothStep(0f, 1f, t);
-            rt.anchoredPosition = Vector2.Lerp(p0, targetPos, k);
-            float s = Mathf.Lerp(s0, targetScale, k);
-            rt.localScale = new Vector3(s, s, 1f);
-            rt.localRotation = Quaternion.Slerp(r0, targetRot, k);
-            yield return null;
-        }
-        rt.anchoredPosition = targetPos;
-        rt.localScale = new Vector3(targetScale, targetScale, 1f);
-        rt.localRotation = targetRot;
+    void EnableOverlay(bool enable)
+    {
+        overlayCanvas.overrideSorting = enable;
+        overlayCanvas.sortingOrder = enable ? (baseOrder + 1000) : baseOrder;
     }
 }
