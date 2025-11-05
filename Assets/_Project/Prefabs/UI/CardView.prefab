@@ -1114,8 +1114,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4114945371719777951}
-  - component: {fileID: 1980027041548642452}
-  - component: {fileID: 7610884991683107449}
+  - component: {fileID: 7639339345196220574}
+  - component: {fileID: 4368504233051190}
   - component: {fileID: 3129303245255205193}
   - component: {fileID: 2686136281024149942}
   - component: {fileID: 477004867814558461}
@@ -1160,7 +1160,7 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: -231}
   m_SizeDelta: {x: 340, y: 462}
   m_Pivot: {x: 0.5, y: 0}
---- !u!222 &1980027041548642452
+--- !u!222 &7639339345196220574
 CanvasRenderer:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1168,7 +1168,7 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3848942999400593254}
   m_CullTransparentMesh: 1
---- !u!114 &7610884991683107449
+--- !u!114 &4368504233051190
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1181,7 +1181,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -1356,6 +1356,7 @@ MonoBehaviour:
     m_Bits: 64
   unitsParent: {fileID: 0}
   destroyOnPlace: 1
+  handContainer: {fileID: 0}
 --- !u!114 &8149509002734790721
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1368,10 +1369,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b05e7069a8296624495e853dddb1bcfc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CardHoverFX
-  baseScale: 2.5
-  hoverMultiplier: 2
-  liftY: 25
-  animTime: 0.08
+  baseScale: 1
+  hoverMultiplier: 1.35
+  liftY: 0
+  animTime: 0.16
   hoverGlow: {fileID: 0}
 --- !u!1 &3901781407336459964
 GameObject:

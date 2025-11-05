@@ -1,28 +1,41 @@
 ﻿using UnityEngine;
+using System.Collections.Generic; // << NEW
 
 [DisallowMultipleComponent]
 public class FannedHandLayout : MonoBehaviour
 {
     [Header("Shape")]
-    [Range(0.3f, 1.0f)] public float baseScale = 0.5f; // in-hand size
-    public float baseSpread = 210f;     // horizontal half-spread at ~5 cards
-    public float spreadPerCard = 10f;   // more cards -> wider spread
-    public float baseArc = 18f;         // vertical “lift” in px (center lowest)
-    public float arcPerCard = 5f;       // more cards -> more arc
-    public float minAngle = 2f;         // degrees at small hands
-    public float maxAngle = 12f;        // degrees at large hands
-    public int angleAtCards = 8;        // reach maxAngle around this many cards
+    [Range(0.3f, 1.2f)] public float baseScale = 0.6f;
+    public float baseSpread = 210f;
+    public float spreadPerCard = 10f;
+    public float baseArc = 18f;
+    public float arcPerCard = 5f;
+    public float minAngle = 2f;
+    public float maxAngle = 12f;
+    public int angleAtCards = 8;
+
     public enum SortMode { LeftToRight, CenterOnTop }
     [Header("Sorting")]
-    public SortMode sortMode = SortMode.CenterOnTop;   // default to center-on-top
+    public SortMode sortMode = SortMode.CenterOnTop;
 
     RectTransform rt;
+    bool suppress; // << keep
+
     void Awake() { rt = (RectTransform)transform; }
     void OnEnable() { RebuildImmediate(); }
 
+    void OnTransformChildrenChanged()
+    {
+        if (suppress) return; // ignore sibling swaps during hover/drag
+        RebuildImmediate();
+    }
+
+    public void BeginSuppressLayout() => suppress = true;
+    public void EndSuppressLayout() => suppress = false;
+
     public void RebuildImmediate()
     {
-        if (rt == null) rt = (RectTransform)transform;
+        if (!rt) rt = (RectTransform)transform;
         int n = rt.childCount;
         if (n == 0) return;
 
@@ -30,8 +43,7 @@ public class FannedHandLayout : MonoBehaviour
         float arc = baseArc + arcPerCard * Mathf.Max(0, n - 1);
         float kAng = Mathf.InverseLerp(1, Mathf.Max(2, angleAtCards), n);
         float angAmp = Mathf.Lerp(minAngle, maxAngle, kAng);
-
-        float mid = (n - 1) * 0.5f; // center index
+        float mid = (n - 1) * 0.5f;
 
         for (int i = 0; i < n; i++)
         {
@@ -40,35 +52,53 @@ public class FannedHandLayout : MonoBehaviour
 
             float t = (n == 1) ? 0f : (i - mid) / mid; // -1..+1
             float x = t * spread;
-            float y = -(t * t) * arc;             // parabolic arc
-            float zRot = -t * angAmp;             // outward tilt (note the minus)
+            float y = -(t * t) * arc;
+            float zRot = -t * angAmp;
 
-            // Cache base pose in an anchor
             var anchor = c.GetComponent<HandCardAnchor>() ?? c.gameObject.AddComponent<HandCardAnchor>();
             anchor.basePos = new Vector2(x, y);
             anchor.baseRot = Quaternion.Euler(0, 0, zRot);
             anchor.baseScale = baseScale;
+
             int order;
-            if (sortMode == SortMode.LeftToRight)
+            if (sortMode == SortMode.LeftToRight) order = 100 + i;
+            else
             {
-                order = 100 + i;
-            }
-            else // CenterOnTop
-            {
-                // Center draws last; farther from center draws earlier
-                float dist = Mathf.Abs(i - mid);         // 0 at center, up to ~mid at edges
-                                                         // Make a big descending scale so differences are clear and stable
-                order = 10000 - Mathf.RoundToInt(dist * 100f) * 10 + i;
+                float distFromCenter = Mathf.Abs(i - mid);
+                order = 10000 - Mathf.RoundToInt(distFromCenter * 100f) * 10 + i;
             }
             anchor.baseOrder = order;
-            // Inform hover FX about scale & base order
-            var fx = c.GetComponent<CardHoverFX>();
-            if (fx) { fx.SetBaseScale(baseScale); fx.SetBaseRenderOrder(anchor.baseOrder); }
 
-            // Don’t fight interactions: only apply when not hovering/dragging
+            var fx = c.GetComponent<CardHoverFX>();
             var drag = c.GetComponent<DraggableCard>();
             bool busy = (fx && fx.IsHovering) || (drag && drag.IsDragging);
             if (!busy) anchor.ApplyTo(c);
         }
+    }
+
+    // << NEW: restore a stable “stair” sibling order for all cards
+    public void RestoreStableSiblingOrder()
+    {
+        if (!rt) rt = (RectTransform)transform;
+        var list = new List<RectTransform>(rt.childCount);
+        for (int i = 0; i < rt.childCount; i++)
+        {
+            var c = rt.GetChild(i) as RectTransform;
+            if (c) list.Add(c);
+        }
+
+        list.Sort((a, b) =>
+        {
+            var aa = a.GetComponent<HandCardAnchor>();
+            var bb = b.GetComponent<HandCardAnchor>();
+            int ao = aa ? aa.baseOrder : 0;
+            int bo = bb ? bb.baseOrder : 0;
+            return ao.CompareTo(bo);
+        });
+
+        BeginSuppressLayout();
+        for (int i = 0; i < list.Count; i++)
+            list[i].SetSiblingIndex(i);
+        EndSuppressLayout();
     }
 }

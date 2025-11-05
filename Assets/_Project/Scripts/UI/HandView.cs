@@ -5,42 +5,40 @@ using Game.Match.Cards;   // CardSO, CardInstance
 public class HandView : MonoBehaviour
 {
     [Header("Prefabs & Parents")]
-    [SerializeField] private Transform slotParent;      // container with FannedHandLayout (no HLG/CSF)
-    [SerializeField] private CardView cardViewPrefab;   // your CardView_PF
+    [SerializeField] private RectTransform slotParent;     // CardSlotContainer
+    [SerializeField] private CardView cardViewPrefab;      // CardView_PF
 
-    // NEW: reference to the fan layout on slotParent
-    [SerializeField] private FannedHandLayout fanLayout;
+    [Header("Layers")]
+    [SerializeField] private RectTransform hoverLayer;     // <— drag Canvas/HandViewport/HoverLayer here in Inspector
 
     public void SetHand(List<CardInstance> hand)
     {
-        // (re)cache fanLayout if not wired in Inspector
-        if (!fanLayout && slotParent) fanLayout = slotParent.GetComponent<FannedHandLayout>();
-
-        // clear old
+        // clear
         for (int i = slotParent.childCount - 1; i >= 0; i--)
             Destroy(slotParent.GetChild(i).gameObject);
 
-        // spawn one CardView per card
         foreach (var ci in hand)
         {
             var view = Instantiate(cardViewPrefab, slotParent);
-            view.name = $"Card_{ci.data.GetType().Name}";
+            view.name = $"Card_{ci.data.cardName}";
             view.Bind(ci.data);
 
-            // wire draggable
             var drag = view.GetComponent<DraggableCard>();
-            if (drag != null)
+            if (drag)
             {
-                drag.instance = ci; // runtime link; grid & layer mask are configured on the prefab
-                drag.handContainer = (RectTransform)slotParent;
+                drag.instance = ci;
+                drag.handContainer = slotParent;           // for SnapBack
             }
+
+            var fx = view.GetComponent<CardHoverFX>();
+            if (fx && hoverLayer) fx.InjectHoverLayer(hoverLayer); // <-- key line: ensures no fallback canvas
         }
 
-        // PING: force recompute the fan this frame
-        if (fanLayout) fanLayout.RebuildImmediate();
+        // optional: force a fresh fan layout if you're using it
+        var fan = slotParent.GetComponentInParent<FannedHandLayout>();
+        if (fan) fan.RebuildImmediate();
     }
 
-    // convenience for testing from CardSOs
     public void SetHandFromSOs(List<CardSO> cards, int ownerId = 0)
     {
         var list = new List<CardInstance>(cards.Count);
