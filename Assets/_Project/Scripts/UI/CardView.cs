@@ -24,7 +24,7 @@ public class CardView : MonoBehaviour
     [SerializeField] private GameObject rangeBadge; [SerializeField] private TMP_Text rangeText; [SerializeField] private Image rangeBadgeImg;
     [SerializeField] private GameObject raceBadge; [SerializeField] private TMP_Text raceText; [SerializeField] private Image raceBadgeImg;
 
-    [SerializeField] private Image sizeIcon;            // Size sprite
+    [SerializeField] private Image sizeIcon;            // Size sprite (also used for Spell/Trap icon)
     [SerializeField] private TMP_Text sizeText;         // Fallback text like "2x3"
     [SerializeField] private Image moveIcon;    // MoveIcon (Ground/Flying)
     [SerializeField] private Image attackIcon;  // AttackIcon (Melee/Ranged)
@@ -110,6 +110,14 @@ public class CardView : MonoBehaviour
     [SerializeField] private SizeIconSet sizeIconsEmpyrean;
     [SerializeField] private SizeIconSet sizeIconsInfernum;
 
+    // ---------- NEW: Spell/Trap icons (realm-aware) ----------
+    [Header("Spell/Trap icons (by Realm)")]
+    [SerializeField] private Sprite spellIconEmpyrean;
+    [SerializeField] private Sprite spellIconInfernum;
+    [SerializeField] private Sprite trapIconEmpyrean;
+    [SerializeField] private Sprite trapIconInfernum;
+    // ---------------------------------------------------------
+
     [Header("Text colors by Realm")]
     [SerializeField] private Color textEmpyrean = Color.black;
     [SerializeField] private Color textInfernum = Color.white;
@@ -122,12 +130,13 @@ public class CardView : MonoBehaviour
         var type = GetEnum<CardType>(so, "type") ?? CardType.Unit;
         var realm = GetEnum<Realm>(so, "realm") ?? Realm.Empyrean;
         bool isUnit = type == CardType.Unit;
+        bool isSpell = type == CardType.Spell;
+        bool isTrap = type == CardType.Trap;
         bool isLegend = GetBool(so, "isLegend", "legend", "legendary");
 
         // --- Movement & AttackType badges (Units & Legendary Units only) ---
         if (isUnit)
         {
-            // Movement (enum first; fallback to bool-style fields if present)
             var mv = GetEnum<MovementType>(so, "movement");
             bool isFlying = (mv != null && mv.Value == MovementType.Flying)
                             || GetBool(so, "isFlying", "hasFlight", "flying");
@@ -144,7 +153,6 @@ public class CardView : MonoBehaviour
                 moveIconImg.preserveAspect = true;
             }
 
-            // Attack type (from AttackMode)
             var atkMode = GetEnum<AttackMode>(so, "attackMode") ?? AttackMode.Melee;
 
             if (attackTypeBadge) attackTypeBadge.SetActive(true);
@@ -228,20 +236,38 @@ public class CardView : MonoBehaviour
         // Effect text
         if (effectText) effectText.text = GetString(so, "rulesText", "effectText", "description", "text") ?? "";
 
-        // Size icon (units only)
+        // ---------- Size/Spell/Trap icon ----------
         GetIntFootprint(so, out int w, out int h);
+
         if (isUnit)
         {
             var set = (realm == Realm.Infernum) ? sizeIconsInfernum : sizeIconsEmpyrean;
             var spr = set != null ? set.Pick(w, h) : null;
-            if (sizeIcon) { sizeIcon.sprite = spr; sizeIcon.enabled = spr != null; }
+            if (sizeIcon)
+            {
+                sizeIcon.sprite = spr;
+                sizeIcon.enabled = spr != null;
+                sizeIcon.preserveAspect = true;
+            }
             if (sizeText) { sizeText.gameObject.SetActive(spr == null); if (spr == null) sizeText.text = $"{w}x{h}"; }
         }
         else
         {
-            if (sizeIcon) sizeIcon.enabled = false;
+            Sprite stIcon = null;
+            if (isSpell)
+                stIcon = (realm == Realm.Infernum) ? spellIconInfernum : spellIconEmpyrean;
+            else if (isTrap)
+                stIcon = (realm == Realm.Infernum) ? trapIconInfernum : trapIconEmpyrean;
+
+            if (sizeIcon)
+            {
+                sizeIcon.sprite = stIcon;
+                sizeIcon.enabled = stIcon != null;
+                sizeIcon.preserveAspect = true;
+            }
             if (sizeText) sizeText.gameObject.SetActive(false);
         }
+        // ------------------------------------------
 
         // Mana pips: units only (and use realm-specific pip sprite)
         var pipSprite = (realm == Realm.Infernum) ? manaPipInfernum : manaPipEmpyrean;

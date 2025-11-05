@@ -578,7 +578,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: a15858174d8fbd542bfba03bf4b935b0, type: 3}
+  m_Sprite: {fileID: 21300000, guid: 1765f335844d9e7428791d85c4ec6bb0, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -1330,6 +1330,10 @@ MonoBehaviour:
     size4x2: {fileID: 21300000, guid: e17116cc7fb2bf74c9cee51bc6745925, type: 3}
     size4x3: {fileID: 21300000, guid: 597f11a433df5c64e921c1d835c92879, type: 3}
     size4x4: {fileID: 21300000, guid: e59fe03ea6b72f448ba69c62adc59f0c, type: 3}
+  spellIconEmpyrean: {fileID: 21300000, guid: 73cf7a926b370db48a04852d75da251e, type: 3}
+  spellIconInfernum: {fileID: 21300000, guid: 1765f335844d9e7428791d85c4ec6bb0, type: 3}
+  trapIconEmpyrean: {fileID: 21300000, guid: eb0820475bbd68c46890ce8b515407fb, type: 3}
+  trapIconInfernum: {fileID: 21300000, guid: 8a40935a593a3c24c93135cebf73cc76, type: 3}
   textEmpyrean: {r: 0, g: 0, b: 0, a: 1}
   textInfernum: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &477004867814558461

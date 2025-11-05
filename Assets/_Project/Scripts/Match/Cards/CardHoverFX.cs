@@ -74,6 +74,7 @@ public class CardHoverFX : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     {
         StopAllCoroutines();
         hovering = false;
+        dragLock = false;
         canHover = true;
         anchor.ApplyTo(rt);
         RestoreSibling();

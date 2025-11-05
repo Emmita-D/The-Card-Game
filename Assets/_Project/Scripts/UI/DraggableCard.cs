@@ -45,26 +45,28 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     {
         IsDragging = true;
 
+        // allow hover script to switch to unclipped mode if you use it
+        var fxTmp = GetComponent<CardHoverFX>();
+        if (fxTmp) fxTmp.BeginDragLock();
+
         startSibling = transform.GetSiblingIndex();
         startParent = transform.parent;
         startPos = rt.position;
 
-        var fx = GetComponent<CardHoverFX>();
-        if (fx) fx.BeginDragLock();   // turn hover off + move to HoverLayer
+        transform.SetAsLastSibling();
 
         if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
         cg.blocksRaycasts = false;
         cg.alpha = 0.9f;
 
-        // preview sizing for units
         var soBegin = instance != null ? instance.data : null;
         bool isUnitBegin = (soBegin != null && soBegin.type == Game.Core.CardType.Unit);
 
+        // ---- PREVIEW: ON for units only ----
         if (isUnitBegin)
         {
             GetFootprintInts(soBegin, out int w, out int h);
-            PreviewW = w;
-            PreviewH = h;
+            PreviewW = w; PreviewH = h;
             PreviewGrid = grid != null ? grid : FindObjectOfType<Game.Match.Grid.GridService>();
             PreviewActive = true;
         }
@@ -75,7 +77,6 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         ToggleDebugPreviews(isUnitBegin);
     }
-
     public void OnDrag(PointerEventData e)
     {
         if (rt == null) rt = GetComponent<RectTransform>();
@@ -95,65 +96,50 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         IsDragging = false;
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
 
-        var fx = GetComponent<CardHoverFX>();
+        // ---- ALWAYS turn preview OFF first ----
+        PreviewActive = false;
+        ToggleDebugPreviews(false);
 
-        if (instance == null || grid == null)
-        {
-            SnapBack();
-            if (fx) fx.EndDragUnlock(0.10f);
-            return;
-        }
+        var fx = GetComponent<CardHoverFX>();
+        if (fx) fx.EndDragUnlock(0f);
+
+        if (instance == null || grid == null) { SnapBack(); return; }
 
         var so = instance.data;
 
         // ---------- SPELLS / TRAPS ----------
         if (so.type != Game.Core.CardType.Unit)
         {
+            // only consume if dropped ON the grid
             var canvas = GetComponentInParent<Canvas>();
             Camera cam = e.pressEventCamera;
             if (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay) cam = null;
             if (cam == null && canvas != null && canvas.worldCamera != null) cam = canvas.worldCamera;
             if (cam == null) cam = Camera.main;
 
-            if (cam != null)
+            if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var hit, 1000f,
+                                               (gridMask.value == 0) ? ~0 : gridMask.value))
             {
-                var ray = cam.ScreenPointToRay(e.position);
-                int mask = (gridMask.value == 0) ? ~0 : gridMask.value;
-
-                if (Physics.Raycast(ray, out var hit, 1000f, mask))
-                {
-                    // Hit the board → play & consume (no placement)
-                    Debug.Log($"[DraggableCard] Played {so.type}: {so.cardName} on grid.");
-                    ToggleDebugPreviews(true);
-                    Destroy(gameObject);
-                    return;
-                }
+                // play (visual-only) & consume
+                Destroy(gameObject);
+                return;
             }
 
-            // Didn’t hit the board → return to hand
-            ToggleDebugPreviews(true);
             SnapBack();
-            if (fx) fx.EndDragUnlock(0.10f);
             return;
         }
 
         // ---------- UNITS ----------
         var camU = e.pressEventCamera != null ? e.pressEventCamera : Camera.main;
-        if (camU == null) { SnapBack(); if (fx) fx.EndDragUnlock(0.10f); return; }
+        if (camU == null) { SnapBack(); return; }
 
-        var rayU = camU.ScreenPointToRay(e.position);
-        if (!Physics.Raycast(rayU, out var hitU, 1000f, gridMask))
-        {
-            SnapBack(); if (fx) fx.EndDragUnlock(0.10f); return;
-        }
-        ToggleDebugPreviews(true);
+        if (!Physics.Raycast(camU.ScreenPointToRay(e.position), out var hitU, 1000f, gridMask))
+        { SnapBack(); return; }
 
         GetFootprintInts(so, out int w2, out int h2);
         var origin = CenteredOrigin(grid, hitU.point, w2, h2);
-        if (!grid.CanPlaceRect(origin, w2, h2))
-        {
-            SnapBack(); if (fx) fx.EndDragUnlock(0.10f); return;
-        }
+        if (!grid.CanPlaceRect(origin, w2, h2)) { SnapBack(); return; }
+
         grid.PlaceRect(origin, w2, h2);
 
         var unitPrefab = GetPrefab(so, "unitPrefab", "prefab", "unit");
@@ -178,43 +164,35 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
         }
 
-        if (destroyOnPlace)
-        {
-            Destroy(gameObject);
-        }
-        else
-        {
-            SnapBack();
-            if (fx) fx.EndDragUnlock(0.10f);
-        }
+        if (destroyOnPlace) Destroy(gameObject); else SnapBack();
     }
-
     void SnapBack()
     {
-        // 1) Parent: always the hand container (set by HandView)
+        // parent & order
         if (handContainer)
             transform.SetParent(handContainer, worldPositionStays: false);
         else if (startParent)
             transform.SetParent(startParent, worldPositionStays: false);
 
-        // 2) Sibling order back to where it came from
         int idx = Mathf.Clamp(startSibling, 0, transform.parent.childCount);
         transform.SetSiblingIndex(idx);
 
-        // 3) Exact base pose + cancel any hover visuals
-        var fx = GetComponent<CardHoverFX>();
-        if (fx) fx.ForceToBasePose();
+        // cancel hover visuals & pose
+        var fxTmp = GetComponent<CardHoverFX>();
+        if (fxTmp) fxTmp.ForceToBasePose();
 
-        // 4) Rebuild the fan immediately
         var fan = GetComponentInParent<FannedHandLayout>();
         if (!fan) fan = FindObjectOfType<FannedHandLayout>();
         if (fan) fan.RebuildImmediate();
 
-        // 5) Restore raycasts
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
+
+        // **** PREVIEW OFF ****
+        PreviewActive = false;
+        ToggleDebugPreviews(false);
+
         IsDragging = false;
     }
-
     void ToggleDebugPreviews(bool enable)
     {
         var behaviours = GameObject.FindObjectsOfType<MonoBehaviour>(true);
@@ -225,6 +203,18 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (tn == "FootprintPreviewRect" || tn == "FootprintPreview" || tn == "PlaceCubeTest")
                 b.enabled = enable;
         }
+    }
+    void OnDisable()
+    {
+        // safety: make sure no preview lingers if object is disabled during drag
+        PreviewActive = false;
+        ToggleDebugPreviews(false);
+    }
+    void OnDestroy()
+    {
+        // safety: same on destroy
+        PreviewActive = false;
+        ToggleDebugPreviews(false);
     }
 
     // ---------- Helpers ----------
