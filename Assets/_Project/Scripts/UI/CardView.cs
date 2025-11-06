@@ -109,8 +109,6 @@ public class CardView : MonoBehaviour
             return null;
         }
     }
-    public CardSO BoundSO { get; private set; }
-
 
     [Header("Size icon sets by Realm")]
     [SerializeField] private SizeIconSet sizeIconsEmpyrean;
@@ -136,6 +134,7 @@ public class CardView : MonoBehaviour
     int costCached = 0;
     bool lastAffordable = true;
     // --------------------------------------------
+    public CardSO BoundSO { get; private set; }
 
     void Awake()
     {
@@ -153,17 +152,13 @@ public class CardView : MonoBehaviour
     }
     public void SetAffordableVisual(bool canPlay)
     {
-        // Prefer overlay image if assigned
-        if (affordDim != null)
+        if (affordDim != null) affordDim.enabled = !canPlay; // spells/traps pass true → hidden
+        else
         {
-            affordDim.enabled = !canPlay;
-            if (affordCg != null) affordCg.alpha = 1f; // keep text readable
-            return;
+            var cg = affordCg != null ? affordCg : GetComponent<CanvasGroup>();
+            if (!cg) cg = gameObject.AddComponent<CanvasGroup>();
+            cg.alpha = canPlay ? 1f : 0.5f;
         }
-        // Otherwise use a canvas group on the root (or create one)
-        var cg = affordCg != null ? affordCg : GetComponent<CanvasGroup>();
-        if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
-        cg.alpha = canPlay ? 1f : 0.5f;
     }
     public void Bind(CardSO so)
     {
@@ -320,6 +315,7 @@ public class CardView : MonoBehaviour
         // ---------- cache cost & update affordability ----------
         costCached = GetInt(so, "manaStars", "mana", "cost", "stars");
         ApplyAffordability(mana ? mana.CanAfford(costCached) : true);
+        SetAffordableVisual(true);
     }
 
     void ApplyAffordability(bool affordable)

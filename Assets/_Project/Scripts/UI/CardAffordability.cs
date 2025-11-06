@@ -27,21 +27,19 @@ public class CardAffordability : MonoBehaviour
     void OnEnable() { ApplyVisual(RecalcCanPlay(out _, out _)); }
     void Update() { ApplyVisual(RecalcCanPlay(out _, out _)); }
 
-    /// True if playable right now (units are gated by mana, spells/traps are always true)
     public bool ComputeAffordableNow()
     {
         return RecalcCanPlay(out _, out bool canPlay) ? canPlay : true;
     }
 
-    /// Spend cost after a successful unit placement.
     public void SpendCostNow()
     {
-        if (!RecalcCanPlay(out CardSO so, out bool _)) return;
-        if (so.type != CardType.Unit) return;                 // spells/traps don't spend
+        if (!RecalcCanPlay(out CardSO so, out _)) return;
+        if (so.type != CardType.Unit) return;                 // spells/traps never spend
         int cost = Mathf.Max(0, so.manaStars);
         if (pool == null || cost <= 0) return;
 
-        // 1) Prefer a TrySpend(int) method on ManaPool, if it exists.
+        // Prefer TrySpend(int) / Spend(int); otherwise no-op (no direct write to Current).
         var trySpend = pool.GetType().GetMethod("TrySpend", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
         if (trySpend != null)
         {
@@ -50,8 +48,6 @@ public class CardAffordability : MonoBehaviour
             ApplyVisual(RecalcCanPlay(out _, out _));
             return;
         }
-
-        // 2) Or a Spend(int) method.
         var spend = pool.GetType().GetMethod("Spend", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
         if (spend != null)
         {
@@ -61,15 +57,7 @@ public class CardAffordability : MonoBehaviour
             return;
         }
 
-        // 3) Fall back to writable 'Current' property *if* it has a public setter.
-        var pCurrent = pool.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
-        if (pCurrent != null && pCurrent.CanWrite)
-        {
-            int cur = (int)pCurrent.GetValue(pool);
-            pCurrent.SetValue(pool, Mathf.Max(0, cur - cost));
-            NotifyPoolChanged();
-        }
-
+        // If your ManaPool later exposes a public setter, we’ll pick it up automatically.
         ApplyVisual(RecalcCanPlay(out _, out _));
     }
 
@@ -79,12 +67,11 @@ public class CardAffordability : MonoBehaviour
         so = (view != null) ? view.BoundSO : null;
         if (so == null) { canPlay = true; return false; }
 
-        if (so.type != CardType.Unit) { canPlay = true; return true; } // spells/traps free
+        if (so.type != CardType.Unit) { canPlay = true; return true; } // spells/traps are always playable
 
         int cost = Mathf.Max(0, so.manaStars);
         if (pool == null) { canPlay = true; return true; }
 
-        // If ManaPool exposes CanSpend(int), use it; else compare to Current.
         var canSpend = pool.GetType().GetMethod("CanSpend", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
         if (canSpend != null)
         {
@@ -92,7 +79,6 @@ public class CardAffordability : MonoBehaviour
             return true;
         }
 
-        // Fallback: read Current (getter must be public, which it already is for you)
         var pCurrent = pool.GetType().GetProperty("Current", BindingFlags.Public | BindingFlags.Instance);
         int cur = (pCurrent != null) ? (int)pCurrent.GetValue(pool) : 0;
         canPlay = cur >= cost;
@@ -101,11 +87,21 @@ public class CardAffordability : MonoBehaviour
 
     void ApplyVisual(bool _ok)
     {
-        RecalcCanPlay(out CardSO so, out bool canPlay);
+        if (!RecalcCanPlay(out CardSO so, out bool canPlay)) return;
 
-        bool isUnit = (so != null && so.type == CardType.Unit);
+        bool isUnit = (so.type == CardType.Unit);
+
+        // 🔒 HARD GUARD: spells/traps must always look fully affordable (no dim, no alpha).
+        if (!isUnit)
+        {
+            if (view != null) view.SetAffordableVisual(true);
+            else cg.alpha = 1f;
+            lastIsUnit = false; lastCanPlay = true;
+            return;
+        }
+
         if (isUnit == lastIsUnit && canPlay == lastCanPlay) return;
-        lastIsUnit = isUnit;
+        lastIsUnit = true;
         lastCanPlay = canPlay;
 
         if (view != null) view.SetAffordableVisual(canPlay);
@@ -114,8 +110,7 @@ public class CardAffordability : MonoBehaviour
 
     void NotifyPoolChanged()
     {
-        // Call ManaPool.NotifyChanged() if you added one; otherwise HUD will refresh on its next update
-        var notify = pool.GetType().GetMethod("NotifyChanged", BindingFlags.Public | BindingFlags.Instance);
+        var notify = pool?.GetType().GetMethod("NotifyChanged", BindingFlags.Public | BindingFlags.Instance);
         if (notify != null) notify.Invoke(pool, null);
     }
 }
