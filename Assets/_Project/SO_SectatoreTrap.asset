@@ -12,10 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
   m_Name: SO_SectatoreTrap
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: New Card
+  cardName: SectatoreTrap
   rulesText: If you control 5 "Faithful" Units, you can activate this card to heal
     one Sectatore Unit for 200hp.
-  type: 0
+  type: 2
   realm: 0
   race: 0
   sizeW: 1
@@ -26,6 +26,6 @@ MonoBehaviour:
   attackMode: 0
   rangeMeters: 0
   movement: 0
-  artSprite: {fileID: 0}
+  artSprite: {fileID: 21300000, guid: 500914c6cb6883b4e88418668418f4ae, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0

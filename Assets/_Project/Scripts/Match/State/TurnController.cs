@@ -27,6 +27,7 @@ namespace Game.Match.State
         [SerializeField] private int drawOnEndTurn = 1;      // 1
         [Tooltip("If true, also bump/refill on Turn 1. Keep OFF for your flow.")]
         [SerializeField] private bool bumpOnFirstTurn = false;
+        [SerializeField] private TurnTimerHUD timer;
 
         [Header("Caps")]
         [SerializeField] private int slotsCap = 10; // mana cap
@@ -41,7 +42,11 @@ namespace Game.Match.State
         public event Action<CardInstance> OnCardDrawn;
 
         void Awake() => BuildDeck();
-        void Start() { if (autoStart) BeginMatch(); }
+        void Start() 
+        { 
+            if (autoStart) BeginMatch();
+            timer?.StartTurnTimer();
+        }
 
         public void BeginMatch()
         {
@@ -53,9 +58,11 @@ namespace Game.Match.State
 
         public void EndTurn()
         {
+            timer?.StopTimer();
             if (drawOnEndTurn > 0) Draw(drawOnEndTurn);  // draw exactly 1
             OnTurnEnded?.Invoke(turnIndex);
             StartTurn();
+            timer?.StartTurnTimer();
         }
 
         public void RemoveFromHand(CardInstance ci)
