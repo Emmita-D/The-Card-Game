@@ -5,6 +5,7 @@ using Game.Match.Cards;
 using Game.Match.Grid;
 using Game.Match.Mana;   // ManaPool
 using Game.Core;
+using Game.Match.State;
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -21,6 +22,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     [SerializeField] private Transform unitsParent;
     [SerializeField] private bool destroyOnPlace = true;
     [SerializeField] public RectTransform handContainer;
+    [SerializeField] private TurnController turn;
 
     // Footprint preview
     public static bool PreviewActive;
@@ -54,6 +56,8 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         aff = GetComponent<CardAffordability>();
         if (aff == null) aff = gameObject.AddComponent<CardAffordability>();
+
+        if (turn == null) turn = FindObjectOfType<TurnController>();
     }
 
     public void OnBeginDrag(PointerEventData e)
@@ -121,7 +125,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var _, 1000f,
                                                (gridMask.value == 0) ? ~0 : gridMask.value))
             {
-                Destroy(gameObject); // consumed
+                ConsumeAndDestroy();
                 return;
             }
             SnapBack();
@@ -166,8 +170,13 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
         }
 
-        if (destroyOnPlace) Destroy(gameObject); else SnapBack();
-
+        if (destroyOnPlace) ConsumeAndDestroy();
+        else
+        {
+            // even if you keep the card view for debugging, it should leave the hand model
+            if (turn != null && instance != null) turn.RemoveFromHand(instance);
+            SnapBack();
+        }
         var fx2 = GetComponent<CardHoverFX>();
         if (fx2) fx2.EndDragUnlock(0.10f);
     }
@@ -230,5 +239,14 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (tn == "FootprintPreviewRect" || tn == "FootprintPreview" || tn == "PlaceCubeTest")
                 b.enabled = enable;
         }
+    }
+    void ConsumeAndDestroy()
+    {
+        // Remove the runtime card from the controller’s hand, then destroy the view
+        if (turn != null && instance != null)
+            turn.RemoveFromHand(instance);
+
+        // Destroy the UI card
+        Destroy(gameObject);
     }
 }
