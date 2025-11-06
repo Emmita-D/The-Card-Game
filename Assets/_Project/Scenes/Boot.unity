@@ -172,7 +172,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Game.UI.HandView
   slotParent: {fileID: 1062252001}
   cardViewPrefab: {fileID: 2686136281024149942, guid: 464cc35bc1ceb5c4ebbe0a52493fe6c8, type: 3}
-  hoverLayer: {fileID: 1206072264}
+  manaPool: {fileID: 670206535}
 --- !u!114 &19861830
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -394,7 +394,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Mana.ManaPool
   cfg: {fileID: 0}
   startSlots: 10
-  startCurrent: 1
+  startCurrent: 5
 --- !u!1 &969990707
 GameObject:
   m_ObjectHideFlags: 0
@@ -1582,6 +1582,6 @@ SceneRoots:
   - {fileID: 1204298937}
   - {fileID: 347640465}
   - {fileID: 1195458265}
+  - {fileID: 670206534}
   - {fileID: 1388859435}
   - {fileID: 1096627218}
-  - {fileID: 670206534}
