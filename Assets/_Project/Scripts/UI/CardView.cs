@@ -1,11 +1,13 @@
 ﻿// Assets/_Project/Scripts/UI/CardView.cs
-using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
+using Game.Core;
+using Game.Match.Cards;
+using Game.Match.Mana;
 using System;
 using System.Reflection;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
 using Game.Match.Cards;
-using Game.Core;
 
 public class CardView : MonoBehaviour
 {
@@ -35,6 +37,8 @@ public class CardView : MonoBehaviour
     [SerializeField] private GameObject attackTypeBadge;
     [SerializeField] private Image attackTypeBadgeImg;
     [SerializeField] private Image attackTypeIconImg;
+    [SerializeField] private UnityEngine.UI.Image affordDim; // optional overlay image (assign in prefab if you have one)
+    [SerializeField] private CanvasGroup affordCg;           // optional; fallback if no image
 
     [Header("Move badge & icons (by Realm)")]
     [SerializeField] private Sprite moveBadgeEmpyrean;
@@ -105,25 +109,65 @@ public class CardView : MonoBehaviour
             return null;
         }
     }
+    public CardSO BoundSO { get; private set; }
+
 
     [Header("Size icon sets by Realm")]
     [SerializeField] private SizeIconSet sizeIconsEmpyrean;
     [SerializeField] private SizeIconSet sizeIconsInfernum;
 
-    // ---------- NEW: Spell/Trap icons (realm-aware) ----------
+    // ---------- Spell/Trap icons (realm-aware) ----------
     [Header("Spell/Trap icons (by Realm)")]
     [SerializeField] private Sprite spellIconEmpyrean;
     [SerializeField] private Sprite spellIconInfernum;
     [SerializeField] private Sprite trapIconEmpyrean;
     [SerializeField] private Sprite trapIconInfernum;
-    // ---------------------------------------------------------
+    // ----------------------------------------------------
 
     [Header("Text colors by Realm")]
     [SerializeField] private Color textEmpyrean = Color.black;
     [SerializeField] private Color textInfernum = Color.white;
 
+    // ---------- NEW: Affordability dim ----------
+    [Header("Affordability (optional)")]
+    [SerializeField] private ManaPool mana;                 // can be left null; we auto-find
+    [SerializeField] private Image unaffordableOverlay;     // full-rect Image, Raycast Target OFF
+    [SerializeField, Range(0f, 1f)] private float unaffordableAlpha = 0.45f;
+    int costCached = 0;
+    bool lastAffordable = true;
+    // --------------------------------------------
+
+    void Awake()
+    {
+        if (!mana) mana = FindObjectOfType<ManaPool>();
+        // Ensure overlay starts hidden
+        if (unaffordableOverlay) { var c = unaffordableOverlay.color; c.a = 0f; unaffordableOverlay.color = c; }
+    }
+
+    void LateUpdate()
+    {
+        // Lightweight per-frame check (safe even if pool has no events)
+        if (mana == null) return;
+        bool affordable = mana.CanAfford(costCached);
+        if (affordable != lastAffordable) ApplyAffordability(affordable);
+    }
+    public void SetAffordableVisual(bool canPlay)
+    {
+        // Prefer overlay image if assigned
+        if (affordDim != null)
+        {
+            affordDim.enabled = !canPlay;
+            if (affordCg != null) affordCg.alpha = 1f; // keep text readable
+            return;
+        }
+        // Otherwise use a canvas group on the root (or create one)
+        var cg = affordCg != null ? affordCg : GetComponent<CanvasGroup>();
+        if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
+        cg.alpha = canPlay ? 1f : 0.5f;
+    }
     public void Bind(CardSO so)
     {
+        BoundSO = so;
         if (title) title.text = GetString(so, "cardName", "title", "name") ?? "(Card)";
         if (art) art.sprite = GetSprite(so, "artSprite", "art", "sprite", "cardArt", "illustration", "image");
 
@@ -272,6 +316,20 @@ public class CardView : MonoBehaviour
         // Mana pips: units only (and use realm-specific pip sprite)
         var pipSprite = (realm == Realm.Infernum) ? manaPipInfernum : manaPipEmpyrean;
         BuildPips(isUnit ? GetInt(so, "manaStars", "mana", "cost", "stars") : 0, pipSprite);
+
+        // ---------- cache cost & update affordability ----------
+        costCached = GetInt(so, "manaStars", "mana", "cost", "stars");
+        ApplyAffordability(mana ? mana.CanAfford(costCached) : true);
+    }
+
+    void ApplyAffordability(bool affordable)
+    {
+        lastAffordable = affordable;
+        if (!unaffordableOverlay) return;
+        var c = unaffordableOverlay.color;
+        c.a = affordable ? 0f : unaffordableAlpha;
+        unaffordableOverlay.color = c;
+        unaffordableOverlay.enabled = !affordable && unaffordableAlpha > 0f;
     }
 
     // ------------- helpers -------------

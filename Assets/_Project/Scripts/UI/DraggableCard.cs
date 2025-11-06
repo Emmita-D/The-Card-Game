@@ -1,82 +1,93 @@
 ﻿using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using System;
-using System.Reflection;
-using Game.Match.Cards;      // CardSO, CardInstance
-using Game.Match.Grid;       // GridService
+using Game.Match.Cards;
+using Game.Match.Grid;
+using Game.Match.Mana;   // ManaPool
+using Game.Core;
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
     [Header("Runtime (set by HandView)")]
-    public CardInstance instance;                  // runtime card
-    public MonoBehaviour placer;                   // optional legacy
-    public object mana;                            // optional legacy
+    public CardInstance instance;
 
-    public static bool PreviewActive;
-    public static int PreviewW = 1, PreviewH = 1;
-    public static Game.Match.Grid.GridService PreviewGrid;
-    public bool IsDragging { get; private set; }
+    // Legacy fields to satisfy older code (e.g., Stage1Sandbox). Not used.
+    public MonoBehaviour placer = null;
+    public object mana = null;
 
     [Header("Placement")]
-    [SerializeField] private GridService grid;     // auto-filled in Awake if null
-    [SerializeField] private LayerMask gridMask;   // set to your Grid layer in Inspector
+    [SerializeField] private GridService grid;
+    [SerializeField] private LayerMask gridMask;
     [SerializeField] private Transform unitsParent;
     [SerializeField] private bool destroyOnPlace = true;
+    [SerializeField] public RectTransform handContainer;
 
-    [SerializeField] public RectTransform handContainer;   // set by HandView
+    // Footprint preview
+    public static bool PreviewActive;
+    public static int PreviewW = 1, PreviewH = 1;
+    public static GridService PreviewGrid;
+
+    public bool IsDragging { get; private set; }
 
     RectTransform rt;
     CanvasGroup cg;
-    Vector3 startPos;
     Transform startParent;
     int startSibling;
+
+    CardAffordability aff;
+    ManaPool pool;   // injected by HandView
+
+    public void SetManaPool(ManaPool p)
+    {
+        pool = p;
+        if (aff != null && p != null) aff.SetPool(p);
+    }
 
     void Awake()
     {
         rt = GetComponent<RectTransform>();
         cg = GetComponent<CanvasGroup>();
+
         if (grid == null) grid = FindObjectOfType<GridService>();
         if (unitsParent == null && grid != null) unitsParent = grid.transform;
         if (gridMask.value == 0) gridMask = ~0;
+
+        aff = GetComponent<CardAffordability>();
+        if (aff == null) aff = gameObject.AddComponent<CardAffordability>();
     }
 
     public void OnBeginDrag(PointerEventData e)
     {
         IsDragging = true;
-
-        // allow hover script to switch to unclipped mode if you use it
-        var fxTmp = GetComponent<CardHoverFX>();
-        if (fxTmp) fxTmp.BeginDragLock();
-
-        startSibling = transform.GetSiblingIndex();
         startParent = transform.parent;
-        startPos = rt.position;
+        startSibling = transform.GetSiblingIndex();
 
-        transform.SetAsLastSibling();
-
-        if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
+        if (!cg) cg = gameObject.AddComponent<CanvasGroup>();
         cg.blocksRaycasts = false;
         cg.alpha = 0.9f;
 
-        var soBegin = instance != null ? instance.data : null;
-        bool isUnitBegin = (soBegin != null && soBegin.type == Game.Core.CardType.Unit);
+        var fx = GetComponent<CardHoverFX>();
+        if (fx) fx.BeginDragLock();
 
-        // ---- PREVIEW: ON for units only ----
-        if (isUnitBegin)
+        transform.SetAsLastSibling();
+
+        var so = instance != null ? instance.data : null;
+        bool isUnit = (so != null && so.type == CardType.Unit);
+
+        if (isUnit)
         {
-            GetFootprintInts(soBegin, out int w, out int h);
+            GetFootprintInts(so, out int w, out int h);
             PreviewW = w; PreviewH = h;
-            PreviewGrid = grid != null ? grid : FindObjectOfType<Game.Match.Grid.GridService>();
+            PreviewGrid = grid != null ? grid : FindObjectOfType<GridService>();
             PreviewActive = true;
         }
         else
         {
             PreviewActive = false;
         }
-
-        ToggleDebugPreviews(isUnitBegin);
+        ToggleDebugPreviews(isUnit);
     }
+
     public void OnDrag(PointerEventData e)
     {
         if (rt == null) rt = GetComponent<RectTransform>();
@@ -96,57 +107,48 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         IsDragging = false;
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
 
-        // ---- ALWAYS turn preview OFF first ----
         PreviewActive = false;
         ToggleDebugPreviews(false);
 
-        var fx = GetComponent<CardHoverFX>();
-        if (fx) fx.EndDragUnlock(0f);
-
         if (instance == null || grid == null) { SnapBack(); return; }
-
         var so = instance.data;
+        bool isUnit = (so.type == CardType.Unit);
 
-        // ---------- SPELLS / TRAPS ----------
-        if (so.type != Game.Core.CardType.Unit)
+        // ---- Spells/Traps: free, only consume if dropped on the grid ----
+        if (!isUnit)
         {
-            // only consume if dropped ON the grid
-            var canvas = GetComponentInParent<Canvas>();
-            Camera cam = e.pressEventCamera;
-            if (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay) cam = null;
-            if (cam == null && canvas != null && canvas.worldCamera != null) cam = canvas.worldCamera;
-            if (cam == null) cam = Camera.main;
-
-            if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var hit, 1000f,
+            var cam = CameraFor(e);
+            if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var _, 1000f,
                                                (gridMask.value == 0) ? ~0 : gridMask.value))
             {
-                // play (visual-only) & consume
-                Destroy(gameObject);
+                Destroy(gameObject); // consumed
                 return;
             }
-
             SnapBack();
             return;
         }
 
-        // ---------- UNITS ----------
-        var camU = e.pressEventCamera != null ? e.pressEventCamera : Camera.main;
+        // ---- Units: must be affordable ----
+        if (aff != null && !aff.ComputeAffordableNow()) { SnapBack(); return; }
+
+        var camU = CameraFor(e);
         if (camU == null) { SnapBack(); return; }
+        if (!Physics.Raycast(camU.ScreenPointToRay(e.position), out var hitU, 1000f, gridMask)) { SnapBack(); return; }
 
-        if (!Physics.Raycast(camU.ScreenPointToRay(e.position), out var hitU, 1000f, gridMask))
-        { SnapBack(); return; }
+        GetFootprintInts(so, out int w, out int h);
+        var origin = CenteredOrigin(grid, hitU.point, w, h);
+        if (!grid.CanPlaceRect(origin, w, h)) { SnapBack(); return; }
 
-        GetFootprintInts(so, out int w2, out int h2);
-        var origin = CenteredOrigin(grid, hitU.point, w2, h2);
-        if (!grid.CanPlaceRect(origin, w2, h2)) { SnapBack(); return; }
+        // Spend AFTER successful placement
+        if (aff != null) aff.SpendCostNow();
 
-        grid.PlaceRect(origin, w2, h2);
+        grid.PlaceRect(origin, w, h);
 
-        var unitPrefab = GetPrefab(so, "unitPrefab", "prefab", "unit");
+        var unitPrefab = so.unitPrefab;
         if (unitPrefab != null)
         {
             Vector3 center = grid.TileCenterToWorld(origin, 0f)
-                           + new Vector3((w2 - 1) * 0.5f * grid.TileSize, 0f, (h2 - 1) * 0.5f * grid.TileSize);
+                           + new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
 
             var go = Instantiate(unitPrefab, center, Quaternion.identity, unitsParent);
 
@@ -165,34 +167,59 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         }
 
         if (destroyOnPlace) Destroy(gameObject); else SnapBack();
+
+        var fx2 = GetComponent<CardHoverFX>();
+        if (fx2) fx2.EndDragUnlock(0.10f);
     }
+
     void SnapBack()
     {
-        // parent & order
         if (handContainer)
-            transform.SetParent(handContainer, worldPositionStays: false);
+            transform.SetParent(handContainer, false);
         else if (startParent)
-            transform.SetParent(startParent, worldPositionStays: false);
+            transform.SetParent(startParent, false);
 
-        int idx = Mathf.Clamp(startSibling, 0, transform.parent.childCount);
-        transform.SetSiblingIndex(idx);
+        transform.SetSiblingIndex(Mathf.Clamp(startSibling, 0, transform.parent.childCount));
 
-        // cancel hover visuals & pose
-        var fxTmp = GetComponent<CardHoverFX>();
-        if (fxTmp) fxTmp.ForceToBasePose();
+        var fx = GetComponent<CardHoverFX>();
+        if (fx) fx.ForceToBasePose();
 
-        var fan = GetComponentInParent<FannedHandLayout>();
-        if (!fan) fan = FindObjectOfType<FannedHandLayout>();
+        var fan = GetComponentInParent<FannedHandLayout>() ?? FindObjectOfType<FannedHandLayout>();
         if (fan) fan.RebuildImmediate();
 
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
-
-        // **** PREVIEW OFF ****
         PreviewActive = false;
         ToggleDebugPreviews(false);
-
         IsDragging = false;
     }
+
+    // ---------- helpers ----------
+    Camera CameraFor(PointerEventData e)
+    {
+        var canvas = GetComponentInParent<Canvas>();
+        Camera cam = e != null ? e.pressEventCamera : null;
+        if (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay) cam = null;
+        if (cam == null && canvas != null && canvas.worldCamera != null) cam = canvas.worldCamera;
+        if (cam == null) cam = Camera.main;
+        return cam;
+    }
+
+    static Vector2Int CenteredOrigin(GridService grid, Vector3 world, int w, int h)
+    {
+        float ts = grid.TileSize;
+        int ox = ((w & 1) == 1) ? Mathf.FloorToInt(world.x / ts) - (w - 1) / 2
+                                : Mathf.RoundToInt(world.x / ts) - (w / 2);
+        int oy = ((h & 1) == 1) ? Mathf.FloorToInt(world.z / ts) - (h - 1) / 2
+                                : Mathf.RoundToInt(world.z / ts) - (h / 2);
+        return new Vector2Int(ox, oy);
+    }
+
+    static void GetFootprintInts(CardSO so, out int w, out int h)
+    {
+        w = Mathf.Clamp(so.sizeW, 1, 4);
+        h = Mathf.Clamp(so.sizeH, 1, 4);
+    }
+
     void ToggleDebugPreviews(bool enable)
     {
         var behaviours = GameObject.FindObjectsOfType<MonoBehaviour>(true);
@@ -203,79 +230,5 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (tn == "FootprintPreviewRect" || tn == "FootprintPreview" || tn == "PlaceCubeTest")
                 b.enabled = enable;
         }
-    }
-    void OnDisable()
-    {
-        // safety: make sure no preview lingers if object is disabled during drag
-        PreviewActive = false;
-        ToggleDebugPreviews(false);
-    }
-    void OnDestroy()
-    {
-        // safety: same on destroy
-        PreviewActive = false;
-        ToggleDebugPreviews(false);
-    }
-
-    // ---------- Helpers ----------
-    static Vector2Int CenteredOrigin(GridService grid, Vector3 world, int w, int h)
-    {
-        float ts = grid.TileSize;
-
-        int ox = ((w & 1) == 1)
-            ? Mathf.FloorToInt(world.x / ts) - (w - 1) / 2
-            : Mathf.RoundToInt(world.x / ts) - (w / 2);
-
-        int oy = ((h & 1) == 1)
-            ? Mathf.FloorToInt(world.z / ts) - (h - 1) / 2
-            : Mathf.RoundToInt(world.z / ts) - (h / 2);
-
-        return new Vector2Int(ox, oy);
-    }
-
-    static void GetFootprintInts(CardSO so, out int w, out int h)
-    {
-        w = GetInt(so, "sizeW", "widthTiles", "footprintW", "w");
-        h = GetInt(so, "sizeH", "heightTiles", "footprintH", "h");
-        if (w <= 0) w = 1;
-        if (h <= 0) h = 1;
-        w = Mathf.Clamp(w, 1, 4);
-        h = Mathf.Clamp(h, 1, 4);
-    }
-
-    static GameObject GetPrefab(object o, params string[] names)
-    {
-        var f = FindField(o, names); if (f != null) return f.GetValue(o) as GameObject;
-        var p = FindProp(o, names); if (p != null) return p.GetValue(o) as GameObject;
-        return null;
-    }
-
-    static int GetInt(object o, params string[] names)
-    {
-        var f = FindField(o, names); if (f != null) return Convert.ToInt32(f.GetValue(o) ?? 0);
-        var p = FindProp(o, names); if (p != null) return Convert.ToInt32(p.GetValue(o) ?? 0);
-        return 0;
-    }
-
-    static FieldInfo FindField(object obj, params string[] names)
-    {
-        var t = obj.GetType();
-        foreach (var n in names)
-        {
-            var f = t.GetField(n, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (f != null) return f;
-        }
-        return null;
-    }
-
-    static PropertyInfo FindProp(object obj, params string[] names)
-    {
-        var t = obj.GetType();
-        foreach (var n in names)
-        {
-            var p = t.GetProperty(n, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (p != null) return p;
-        }
-        return null;
     }
 }
