@@ -29,6 +29,10 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     public static int PreviewW = 1, PreviewH = 1;
     public static GridService PreviewGrid;
 
+    // NEW: preview metadata for affordability coloring
+    public static bool PreviewIsUnit = false;
+    public static bool PreviewAffordable = true;
+
     public bool IsDragging { get; private set; }
 
     RectTransform rt;
@@ -77,6 +81,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         var so = instance != null ? instance.data : null;
         bool isUnit = (so != null && so.type == CardType.Unit);
+        PreviewIsUnit = isUnit;
 
         if (isUnit)
         {
@@ -84,16 +89,25 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             PreviewW = w; PreviewH = h;
             PreviewGrid = grid != null ? grid : FindObjectOfType<GridService>();
             PreviewActive = true;
+
+            // Evaluate affordability at drag start
+            PreviewAffordable = (aff == null) || aff.ComputeAffordableNow();
         }
         else
         {
             PreviewActive = false;
+            PreviewAffordable = true; // spells unaffected
         }
+
         ToggleDebugPreviews(isUnit);
     }
 
     public void OnDrag(PointerEventData e)
     {
+        // Keep affordability up to date while dragging
+        if (PreviewIsUnit && aff != null)
+            PreviewAffordable = aff.ComputeAffordableNow();
+
         if (rt == null) rt = GetComponent<RectTransform>();
 
         var canvas = GetComponentInParent<Canvas>();
@@ -111,8 +125,11 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         IsDragging = false;
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
 
+        // Stop previews immediately
         PreviewActive = false;
         ToggleDebugPreviews(false);
+        PreviewIsUnit = false;
+        PreviewAffordable = true;
 
         if (instance == null || grid == null) { SnapBack(); return; }
         var so = instance.data;
@@ -170,6 +187,11 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
         }
 
+        // Reset any lingering preview flags (defensive)
+        PreviewActive = false;
+        PreviewIsUnit = false;
+        PreviewAffordable = true;
+
         if (destroyOnPlace) ConsumeAndDestroy();
         else
         {
@@ -200,6 +222,10 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         PreviewActive = false;
         ToggleDebugPreviews(false);
         IsDragging = false;
+
+        // Reset preview flags
+        PreviewIsUnit = false;
+        PreviewAffordable = true;
     }
 
     // ---------- helpers ----------

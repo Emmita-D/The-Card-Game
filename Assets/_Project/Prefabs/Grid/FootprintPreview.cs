@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 using Game.Match.Grid;
 
@@ -6,7 +6,7 @@ using Game.Match.Grid;
 public class FootprintPreviewRect : MonoBehaviour
 {
     public GridService grid;         // optional; will fall back to DraggableCard.PreviewGrid
-    public LayerMask gridMask;       // if 0, we�ll raycast everything
+    public LayerMask gridMask;       // if 0, we’ll raycast everything
 
     Vector2 lastMousePos;
 
@@ -39,8 +39,11 @@ public class FootprintPreviewRect : MonoBehaviour
 
         bool can = g.CanPlaceRect(origin, footW, footH);
 
-        var solid = can ? new Color(0f, 1f, 0f, 0.35f) : new Color(1f, 0f, 0f, 0.35f);
-        var wire = can ? new Color(0f, 0.9f, 0f, 1f) : new Color(0.95f, 0f, 0f, 1f);
+        // Green only if placement is valid AND (not a unit OR unit is affordable)
+        bool ok = can && (!DraggableCard.PreviewIsUnit || DraggableCard.PreviewAffordable);
+
+        var solid = ok ? new Color(0f, 1f, 0f, 0.35f) : new Color(1f, 0f, 0f, 0.35f);
+        var wire = ok ? new Color(0f, 0.9f, 0f, 1f) : new Color(0.95f, 0f, 0f, 1f);
 
         for (int dy = 0; dy < footH; dy++)
             for (int dx = 0; dx < footW; dx++)
