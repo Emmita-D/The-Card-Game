@@ -30,10 +30,15 @@ public class TurnTimerHUD : MonoBehaviour
 
     public void StartTurnTimer(float? overrideSeconds = null)
     {
+        // Force-stop any previous tick (guards against same-frame stop/start races)
+        running = false;
+
         remaining = overrideSeconds.HasValue ? overrideSeconds.Value : durationSeconds;
-        running = true;
         firedThisTurn = false;
         UpdateLabel();
+
+        // Start fresh
+        running = true;
     }
 
     public void StopTimer()
@@ -56,11 +61,8 @@ public class TurnTimerHUD : MonoBehaviour
             firedThisTurn = true;
             running = false;
 
-            // Auto-end current turn
+            // Auto-end current turn. IMPORTANT: do NOT self-restart here.
             if (turn != null) turn.EndTurn();
-
-            // Immediately start next turn’s countdown (idempotent even if TurnController also starts it)
-            StartTurnTimer();
         }
     }
 

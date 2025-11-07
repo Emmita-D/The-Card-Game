@@ -22,11 +22,12 @@ namespace Game.Match.State
 
         [Header("Turn Behavior")]
         [SerializeField] private bool bumpMaxOnStartTurn = true;   // ON
-        [SerializeField] private bool refillOnStartTurn = true;   // ON
-        [SerializeField] private int drawOnStartTurn = 0;      // 0
-        [SerializeField] private int drawOnEndTurn = 1;      // 1
+        [SerializeField] private bool refillOnStartTurn = true;    // ON
+        [SerializeField] private int drawOnStartTurn = 0;          // 0
+        [SerializeField] private int drawOnEndTurn = 1;            // 1
         [Tooltip("If true, also bump/refill on Turn 1. Keep OFF for your flow.")]
         [SerializeField] private bool bumpOnFirstTurn = false;
+
         [SerializeField] private TurnTimerHUD timer;
 
         [Header("Caps")]
@@ -37,60 +38,62 @@ namespace Game.Match.State
         private readonly List<CardInstance> hand = new();
         private int turnIndex = 0;
 
-        public event Action<int> OnTurnStarted;
-        public event Action<int> OnTurnEnded;
-        public event Action<CardInstance> OnCardDrawn;
-
         void Awake() => BuildDeck();
-        void Start() 
-        { 
+
+        void Start()
+        {
             if (autoStart) BeginMatch();
-            timer?.StartTurnTimer();
+            // DO NOT start the timer here — StartTurn() is the single source of truth
         }
 
         public void BeginMatch()
         {
-            // Respect the inspector: e.g., ManaPool startCurrent=1, startSlots=1
             Draw(startingHand);
             turnIndex = 0;
-            StartTurn();
+            StartTurn(); // will start timer fresh
         }
 
         public void EndTurn()
         {
+            // Stop current countdown immediately
             timer?.StopTimer();
-            if (drawOnEndTurn > 0) Draw(drawOnEndTurn);  // draw exactly 1
-            OnTurnEnded?.Invoke(turnIndex);
+
+            // Your usual end-turn flow
+            if (drawOnEndTurn > 0) Draw(drawOnEndTurn);
+
+            // Advance and start the next turn (this starts a FULL countdown)
             StartTurn();
+        }
+
+        private void StartTurn()
+        {
+            // (Re)start a fresh FULL countdown first, so UI snaps immediately
             timer?.StartTurnTimer();
+
+            turnIndex++;
+
+            // Bump/refill mana except on first turn (unless opted in)
+            bool doOps = (turnIndex > 1) || bumpOnFirstTurn;
+            if (doOps && mana != null)
+            {
+                if (bumpMaxOnStartTurn)
+                {
+                    int newSlots = Mathf.Min(slotsCap, mana.Slots + 1);
+                    mana.SetSlots(newSlots);
+                }
+                if (refillOnStartTurn)
+                {
+                    mana.SetCurrent(mana.Slots);
+                }
+            }
+
+            if (drawOnStartTurn > 0) Draw(drawOnStartTurn);
         }
 
         public void RemoveFromHand(CardInstance ci)
         {
             if (ci == null) return;
             if (hand.Remove(ci)) PushHandToView();
-        }
-
-        private void StartTurn()
-        {
-            turnIndex++;
-
-            bool doOps = (turnIndex > 1) || bumpOnFirstTurn; // skip Turn 1 bump/refill unless opted in
-            if (doOps && mana != null)
-            {
-                if (bumpMaxOnStartTurn)
-                {
-                    int newSlots = Mathf.Min(slotsCap, mana.Slots + 1);
-                    mana.SetSlots(newSlots);            // bump Slots by +1 (to cap)
-                }
-                if (refillOnStartTurn)
-                {
-                    mana.SetCurrent(mana.Slots);        // refill Current to Slots
-                }
-            }
-
-            if (drawOnStartTurn > 0) Draw(drawOnStartTurn);
-            OnTurnStarted?.Invoke(turnIndex);
         }
 
         private void Draw(int count)
@@ -100,7 +103,6 @@ namespace Game.Match.State
                 var so = deck.Dequeue();
                 var ci = new CardInstance(so, ownerId);
                 hand.Add(ci);
-                OnCardDrawn?.Invoke(ci);
             }
             PushHandToView();
         }
@@ -126,3 +128,4 @@ namespace Game.Match.State
         }
     }
 }
+
