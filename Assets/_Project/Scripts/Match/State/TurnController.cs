@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Game.Match.Cards;
 using Game.Match.Mana;   // ManaPool (Slots/Current/SetSlots/SetCurrent)
+using Game.Match.Graveyard;
 
 namespace Game.Match.State
 {
@@ -37,6 +38,7 @@ namespace Game.Match.State
         private readonly Queue<CardSO> deck = new();
         private readonly List<CardInstance> hand = new();
         private int turnIndex = 0;
+        public event Action<CardInstance> OnCardDiscarded;
 
         void Awake() => BuildDeck();
 
@@ -48,6 +50,7 @@ namespace Game.Match.State
 
         public void BeginMatch()
         {
+            GraveyardService.Instance.ClearAll();
             Draw(startingHand);
             turnIndex = 0;
             StartTurn(); // will start timer fresh
@@ -95,6 +98,49 @@ namespace Game.Match.State
             if (ci == null) return;
             if (hand.Remove(ci)) PushHandToView();
         }
+
+        /// <summary>
+        /// Discard a specific card from this controller's hand. Returns true if removed.
+        /// Sends the card to this player's realm graveyard and refreshes the hand UI.
+        /// </summary>
+        public bool Discard(CardInstance ci)
+        {
+            if (ci == null) return false;
+
+            bool removed = hand.Remove(ci);
+            if (!removed) return false;
+
+            // Send to per-player, per-realm graveyard
+            if (ci.data != null)
+                GraveyardService.Instance.Add(ownerId, ci.data);
+
+            PushHandToView();
+            OnCardDiscarded?.Invoke(ci);
+            return true;
+        }
+
+        /// <summary>Discard by hand index (0-based). Returns true on success.</summary>
+        public bool DiscardByIndex(int index)
+        {
+            if (index < 0 || index >= hand.Count) return false;
+            return Discard(hand[index]);
+        }
+
+        /// <summary>Discard a random card from hand. Returns true on success.</summary>
+        public bool DiscardRandom()
+        {
+            if (hand.Count == 0) return false;
+            int idx = UnityEngine.Random.Range(0, hand.Count);
+            return Discard(hand[idx]);
+        }
+
+#if UNITY_EDITOR
+        [ContextMenu("DEBUG: Discard First In Hand")]
+        void Debug_DiscardFirst()
+        {
+            if (hand.Count > 0) Discard(hand[0]);
+        }
+#endif
 
         private void Draw(int count)
         {

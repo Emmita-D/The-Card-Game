@@ -1,4 +1,3 @@
-// Assets/_Project/Prefabs/Grid/OccupancyGizmos.cs
 using UnityEngine;
 using Game.Match.Grid;
 
@@ -9,8 +8,18 @@ public class OccupancyGizmos : MonoBehaviour
     public Color occupiedSolid = new Color(0.2f, 0.6f, 1f, 0.18f);
     public Color occupiedWire = new Color(0.2f, 0.6f, 1f, 0.75f);
 
+    [Tooltip("If true, draw only in Scene view (recommended).")]
+    public bool sceneViewOnly = true;
+
     void OnDrawGizmos()
     {
+        // Draw only for the SceneView camera so gizmos never overlay Game/UI
+        if (sceneViewOnly)
+        {
+            if (Camera.current == null || Camera.current.cameraType != CameraType.SceneView)
+                return;
+        }
+
         if (grid == null) grid = GetComponent<GridService>();
         if (grid == null) return;
 

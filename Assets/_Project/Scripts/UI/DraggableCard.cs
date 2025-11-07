@@ -6,6 +6,7 @@ using Game.Match.Grid;
 using Game.Match.Mana;   // ManaPool
 using Game.Core;
 using Game.Match.State;
+using Game.Match.Graveyard;
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -142,6 +143,9 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var _, 1000f,
                                                (gridMask.value == 0) ? ~0 : gridMask.value))
             {
+                // Send spent card to the owner’s realm graveyard
+                if (instance != null && instance.data != null)
+                    GraveyardService.Instance.Add(instance.ownerId, instance.data);
                 ConsumeAndDestroy();
                 return;
             }
@@ -172,6 +176,12 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                            + new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
 
             var go = Instantiate(unitPrefab, center, Quaternion.identity, unitsParent);
+
+            // Attach graveyard relay to record unit deaths (per-player / per-realm)
+            var gy = go.GetComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+            if (gy == null) gy = go.AddComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+            gy.source = so;                               // CardSO that spawned this unit
+            gy.ownerId = (instance != null) ? instance.ownerId : 0;
 
             float groundY = grid.transform.position.y;
             var col = go.GetComponentInChildren<Collider>();
