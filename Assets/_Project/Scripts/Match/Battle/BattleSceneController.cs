@@ -1,172 +1,241 @@
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using Game.Match.State;   // MatchRuntimeService, BattleDescriptor, BattleUnitSeed, BattleResult, UnitSnapshot, TowerSnapshot
+using Game.Match.State;   // BattleDescriptor, BattleUnitSeed, BattleResult, UnitSnapshot, TowerSnapshot
 using Game.Match.Units;
 
 namespace Game.Match.Battle
 {
     /// <summary>
-    /// Orchestrates the BattleStage scene:
-    /// - Holds references to spawn points and towers
-    /// - Reads MatchRuntimeService.pendingBattle
-    /// - Spawns units for both sides and registers them with CombatResolver
-    /// - Listens for CombatResolver.OnSideDefeated to end the battle and store a BattleResult
+    /// Battle orchestrator:
+    /// - Hides CardPhase scene roots while the battle runs
+    /// - Spawns units from seeds
+    /// - Maps CardPhase positions to the lane without scaling: X->laneRight, Z->laneFwd
+    /// - Grounds units and keeps a stable visual yaw
+    /// - Resolves battle and unloads this scene
     /// </summary>
     public class BattleSceneController : MonoBehaviour
     {
         [Header("Scene References")]
-        [Tooltip("Where local units will spawn from.")]
-        public Transform localSpawn;
-
-        [Tooltip("Where remote units will spawn from.")]
-        public Transform remoteSpawn;
-
-        [Tooltip("Local towers, usually [0] = front, [1] = back.")]
+        public Transform localSpawn;     // lane start (local side)
+        public Transform remoteSpawn;    // lane end   (remote side)
         public BattleTower[] localTowers;
-
-        [Tooltip("Remote towers, usually [0] = front, [1] = back.")]
         public BattleTower[] remoteTowers;
 
         [Header("Unit spawning")]
-        [Tooltip("Prefab used for units in the battle stage (e.g. Unit_Dummy).")]
         public GameObject unitPrefab;
-
-        [Header("Services")]
         public CombatResolver combatResolver;
 
-        private bool _battleFinished = false;
+        [Header("CardPhase interop")]
+        [Tooltip("Name of the Card Phase scene to hide while the battle runs.")]
+        [SerializeField] private string cardPhaseSceneName = "CardPhase";
+
+        [Header("Mapping (no heuristics)")]
+        [Tooltip("How far in front of localSpawn we place the frontmost CardPhase row.")]
+        [SerializeField] private float startLineForwardOffset = 0.25f;
+
+        [Header("Visual facing")]
+        [Tooltip("Extra yaw applied to the VISUAL child (not the root). Use ±90 if your model's nose isn't +Z.")]
+        [SerializeField] private float yawOffsetDegrees = 0f;
+        [Tooltip("Optional child name to treat as visual root (e.g., 'Model', 'Visual').")]
+        [SerializeField] private string visualChildHint = "Model";
+
+        [Header("Grounding")]
+        [Tooltip("Physics layers considered ground when snapping. If 0, uses all layers.")]
+        [SerializeField] private LayerMask groundMask = 0;
+        [Tooltip("Extra clearance above the ground after resting the object's bottom.")]
+        [SerializeField] private float groundClearance = 0.02f;
+        [Tooltip("Max distance for the downward ground ray.")]
+        [SerializeField] private float groundRayMaxDistance = 100f;
+
+        private bool _battleFinished;
+        private Vector3 _laneFwd;     // local -> remote
+        private Vector3 _laneRight;   // right relative to lane forward
+        private float _lanePlaneY;  // fallback Y if raycast misses
 
         private void Awake()
         {
-            if (combatResolver == null)
-            {
-                combatResolver = FindObjectOfType<CombatResolver>();
-            }
+            if (combatResolver == null) combatResolver = FindObjectOfType<CombatResolver>();
         }
 
         private void OnEnable()
         {
-            if (combatResolver != null)
-            {
-                combatResolver.OnSideDefeated += HandleSideDefeated;
-            }
+            if (combatResolver != null) combatResolver.OnSideDefeated += HandleSideDefeated;
         }
-
         private void OnDisable()
         {
-            if (combatResolver != null)
-            {
-                combatResolver.OnSideDefeated -= HandleSideDefeated;
-            }
+            if (combatResolver != null) combatResolver.OnSideDefeated -= HandleSideDefeated;
         }
 
         private void Start()
         {
             var match = MatchRuntimeService.Instance;
-            if (match == null)
-            {
-                Debug.LogWarning("[BattleSceneController] MatchRuntimeService not found. " +
-                                 "When running the full game, make sure Boot scene is loaded first.");
-                return;
-            }
+            if (match == null) { Debug.LogWarning("[BattleSceneController] MatchRuntimeService missing."); return; }
+            if (unitPrefab == null) { Debug.LogError("[BattleSceneController] unitPrefab not assigned."); return; }
+            if (localSpawn == null || remoteSpawn == null) { Debug.LogError("[BattleSceneController] spawn points not assigned."); return; }
+
+            // Lane frame from spawn points
+            _laneFwd = remoteSpawn.position - localSpawn.position; _laneFwd.y = 0f;
+            _laneFwd = _laneFwd.sqrMagnitude < 1e-6f ? Vector3.right : _laneFwd.normalized;
+            _laneRight = Vector3.Cross(Vector3.up, _laneFwd).normalized;
+            _lanePlaneY = 0.5f * (localSpawn.position.y + remoteSpawn.position.y);
+
+            // Hide CardPhase visuals so the board/UI don't bleed into battle
+            HideSceneRoots(cardPhaseSceneName);
 
             var desc = match.pendingBattle;
-            if (desc == null)
-            {
-                Debug.LogWarning("[BattleSceneController] No pendingBattle descriptor found. " +
-                                 "Did you call StartBattle from CardPhase?");
-                return;
-            }
+            if (desc == null) { Debug.LogWarning("[BattleSceneController] No pendingBattle descriptor."); return; }
 
-            Debug.Log($"[BattleSceneController] pendingBattle: " +
-                      $"local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
-
-            if (unitPrefab == null)
-            {
-                Debug.LogError("[BattleSceneController] unitPrefab is not assigned.");
-                return;
-            }
-
-            if (localSpawn == null || remoteSpawn == null)
-            {
-                Debug.LogError("[BattleSceneController] Spawn points not assigned.");
-                return;
-            }
-
-            if (combatResolver != null)
-            {
-                combatResolver.RegisterTowers(localTowers, remoteTowers);
-            }
-
+            Debug.Log($"[BattleSceneController] pendingBattle: local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
+            combatResolver?.RegisterTowers(localTowers, remoteTowers);
             SpawnUnits(desc);
         }
 
         private void SpawnUnits(BattleDescriptor desc)
         {
-            // Direction along the lane: from localSpawn to remoteSpawn
-            Vector3 laneDir = (remoteSpawn.position - localSpawn.position).normalized;
-            Vector3 localDir = laneDir;
-            Vector3 remoteDir = -laneDir;
+            Vector3 localDir = _laneFwd;
+            Vector3 remoteDir = -_laneFwd;
 
-            // Local side
-            foreach (var seed in desc.localUnits)
-            {
-                if (seed.card == null)
-                {
-                    Debug.LogWarning("[BattleSceneController] Skipping local seed with null card.");
-                    continue;
-                }
+            // Spawn LOCAL using rigid mapping from CardPhase to lane (X->right, Z->forward)
+            if (desc.localUnits.Count > 0)
+                SpawnMappedLocals(desc.localUnits, localDir);
 
-                Vector3 pos = seed.useExactPosition
-                    ? seed.exactPosition
-                    : localSpawn.position + laneDir * seed.spawnOffset;
-
-                Debug.Log($"[BattleSceneController] Spawning LOCAL unit card={seed.card.name}, " +
-                          $"owner={seed.ownerId}, useExact={seed.useExactPosition}, pos={pos}");
-
-                SpawnSingleUnit(seed, pos, localDir);
-            }
-
-            // Remote side
+            // Spawn REMOTE as before (debug/offsets or exact)
             foreach (var seed in desc.remoteUnits)
             {
-                if (seed.card == null)
-                {
-                    Debug.LogWarning("[BattleSceneController] Skipping remote seed with null card.");
-                    continue;
-                }
-
-                Vector3 pos = seed.useExactPosition
+                if (seed.card == null) continue;
+                Vector3 desired = seed.useExactPosition
                     ? seed.exactPosition
-                    : remoteSpawn.position + (-laneDir) * seed.spawnOffset;
+                    : remoteSpawn.position + (-_laneFwd) * seed.spawnOffset;
 
-                Debug.Log($"[BattleSceneController] Spawning REMOTE unit card={seed.card.name}, " +
-                          $"owner={seed.ownerId}, useExact={seed.useExactPosition}, pos={pos}");
-
-                SpawnSingleUnit(seed, pos, remoteDir);
+                SpawnOne(seed, desired, remoteDir, "REMOTE");
             }
         }
 
-        private void SpawnSingleUnit(BattleUnitSeed seed, Vector3 position, Vector3 direction)
+        /// <summary>
+        /// Use the actual CardPhase positions, but re-express them in the lane frame:
+        /// - CardPhase X -> laneRight
+        /// - CardPhase Z -> laneFwd
+        /// We translate so the frontmost row (min Z in CardPhase) sits at a small forward offset
+        /// from localSpawn, and we center around the group's mean X so it "drops in place"
+        /// without any spreading or scaling.
+        /// </summary>
+        private void SpawnMappedLocals(List<BattleUnitSeed> locals, Vector3 moveForward)
         {
-            // Parent under this controller so the units belong to the BattleStage scene.
-            var go = Instantiate(unitPrefab, position, Quaternion.identity, transform);
+            // Gather stats only from seeds that actually used exact positions
+            float minZ = float.PositiveInfinity;
+            float sumX = 0f; int count = 0;
+
+            foreach (var s in locals)
+            {
+                if (s.card == null) continue;
+                Vector3 p = s.useExactPosition ? s.exactPosition : localSpawn.position + _laneFwd * s.spawnOffset;
+                sumX += p.x; count++;
+                if (p.z < minZ) minZ = p.z;
+            }
+            if (count == 0) return;
+
+            float meanX = sumX / count;
+            Vector3 anchor = localSpawn.position + _laneFwd * startLineForwardOffset;
+
+            foreach (var seed in locals)
+            {
+                if (seed.card == null) continue;
+
+                Vector3 p = seed.useExactPosition ? seed.exactPosition : localSpawn.position + _laneFwd * seed.spawnOffset;
+
+                float dx = p.x - meanX;   // lateral relative to group center (CardPhase X)
+                float dz = p.z - minZ;    // depth relative to frontmost row  (CardPhase Z)
+
+                Vector3 desired = anchor + _laneRight * dx + _laneFwd * dz;
+                SpawnOne(seed, desired, moveForward, "LOCAL*mapped");
+            }
+        }
+
+        private void SpawnOne(BattleUnitSeed seed, Vector3 desiredWorldPos, Vector3 moveForward, string label)
+        {
+            float groundY = GetGroundYAt(desiredWorldPos);
+            Vector3 spawnPos = new Vector3(desiredWorldPos.x, groundY, desiredWorldPos.z);
+
+            // Root faces lane for movement; visuals get an extra yaw (child) so they LOOK right
+            Quaternion rootRot = Quaternion.LookRotation(moveForward, Vector3.up);
+
+            var go = Instantiate(unitPrefab, spawnPos, rootRot, transform);
+            RestObjectOnGround(go, groundY + groundClearance);
+
+            var visual = ResolveVisualChild(go.transform);
+            AttachVisualYawApplier(visual, yawOffsetDegrees);
 
             var agent = go.GetComponent<UnitAgent>();
-            if (agent == null)
+            if (agent == null) agent = go.AddComponent<UnitAgent>();
+            agent.Initialize(seed.card, seed.ownerId, moveForward);
+            combatResolver?.RegisterUnit(agent);
+
+            Debug.Log($"[BattleSceneController] {label} card={seed.card.name}, owner={seed.ownerId}, pos={go.transform.position}");
+        }
+
+        private void HideSceneRoots(string sceneName)
+        {
+            if (string.IsNullOrEmpty(sceneName)) return;
+            var s = SceneManager.GetSceneByName(sceneName);
+            if (!s.IsValid()) return;
+            var roots = s.GetRootGameObjects();
+            for (int i = 0; i < roots.Length; i++) roots[i].SetActive(false);
+        }
+
+        private float GetGroundYAt(Vector3 worldXZ)
+        {
+            int mask = (groundMask.value == 0) ? ~0 : groundMask.value;
+            Vector3 origin = worldXZ + Vector3.up * groundRayMaxDistance * 0.5f;
+            if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, groundRayMaxDistance, mask, QueryTriggerInteraction.Collide))
+                return hit.point.y;
+            return _lanePlaneY;
+        }
+
+        private void RestObjectOnGround(GameObject go, float targetY)
+        {
+            Bounds? best = null;
+            var cols = go.GetComponentsInChildren<Collider>();
+            foreach (var c in cols) { best = best.HasValue ? Enc(best.Value, c.bounds) : c.bounds; }
+            if (!best.HasValue)
             {
-                agent = go.AddComponent<UnitAgent>();
+                var rends = go.GetComponentsInChildren<Renderer>();
+                foreach (var r in rends) { best = best.HasValue ? Enc(best.Value, r.bounds) : r.bounds; }
             }
 
-            agent.Initialize(seed.card, seed.ownerId, direction);
-
-            if (combatResolver != null)
+            if (best.HasValue)
             {
-                combatResolver.RegisterUnit(agent);
+                float delta = targetY - best.Value.min.y;
+                go.transform.position += new Vector3(0f, delta, 0f);
+            }
+            else
+            {
+                var p = go.transform.position; p.y = targetY; go.transform.position = p;
             }
 
-            Debug.Log($"[BattleSceneController] Instantiated unit prefab for card={seed.card.name}, " +
-                      $"owner={seed.ownerId}, worldPos={go.transform.position}");
+            static Bounds Enc(Bounds a, Bounds b) { a.Encapsulate(b); return a; }
+        }
+
+        private Transform ResolveVisualChild(Transform root)
+        {
+            if (!string.IsNullOrEmpty(visualChildHint))
+            {
+                var hinted = root.Find(visualChildHint);
+                if (hinted != null) return hinted;
+            }
+            string[] names = { "Model", "Visual", "Graphics", "MeshRoot", "Art" };
+            foreach (var n in names) { var t = root.Find(n); if (t != null) return t; }
+            if (root.childCount == 1) return root.GetChild(0);
+            var rends = root.GetComponentsInChildren<Renderer>(); if (rends.Length > 0) return rends[0].transform;
+            return root;
+        }
+
+        private void AttachVisualYawApplier(Transform visual, float yaw)
+        {
+            if (visual == null) return;
+            var applier = visual.GetComponent<VisualYawApplier>();
+            if (applier == null) applier = visual.gameObject.AddComponent<VisualYawApplier>();
+            applier.yawOffsetDegrees = yaw;
         }
 
         private void HandleSideDefeated(int loserOwnerId)
@@ -175,89 +244,59 @@ namespace Game.Match.Battle
             _battleFinished = true;
 
             var match = MatchRuntimeService.Instance;
-            if (match == null)
-            {
-                Debug.LogWarning("[BattleSceneController] MatchRuntimeService not found when trying to finish battle.");
-                return;
-            }
+            if (match == null) return;
 
-            var result = new BattleResult
-            {
-                winnerId = loserOwnerId == 0 ? 1 : 0
-            };
+            var result = new BattleResult { winnerId = loserOwnerId == 0 ? 1 : 0 };
 
-            // Snapshot surviving units
             if (combatResolver != null)
             {
-                // Local survivors
                 foreach (var agent in combatResolver.LocalUnits)
                 {
                     if (agent == null) continue;
-
                     var rt = agent.GetComponent<UnitRuntime>();
-                    if (rt == null || rt.health <= 0) continue;
-
-                    result.survivorsLocal.Add(new UnitSnapshot
-                    {
-                        card = agent.sourceCard,
-                        ownerId = agent.ownerId,
-                        remainingHp = rt.health
-                    });
+                    if (rt != null && rt.health > 0)
+                        result.survivorsLocal.Add(new UnitSnapshot { card = agent.sourceCard, ownerId = agent.ownerId, remainingHp = rt.health });
                 }
-
-                // Remote survivors
                 foreach (var agent in combatResolver.RemoteUnits)
                 {
                     if (agent == null) continue;
-
                     var rt = agent.GetComponent<UnitRuntime>();
-                    if (rt == null || rt.health <= 0) continue;
-
-                    result.survivorsRemote.Add(new UnitSnapshot
-                    {
-                        card = agent.sourceCard,
-                        ownerId = agent.ownerId,
-                        remainingHp = rt.health
-                    });
+                    if (rt != null && rt.health > 0)
+                        result.survivorsRemote.Add(new UnitSnapshot { card = agent.sourceCard, ownerId = agent.ownerId, remainingHp = rt.health });
                 }
             }
 
-            // Snapshot towers (we treat destroyed towers as HP = 0)
             for (int i = 0; i < localTowers.Length; i++)
             {
-                var t = localTowers[i];
-                int hp = (t != null) ? t.currentHp : 0;
-
-                result.towers.Add(new TowerSnapshot
-                {
-                    ownerId = 0,
-                    index = i,
-                    remainingHp = hp
-                });
+                int hp = (localTowers[i] != null) ? localTowers[i].currentHp : 0;
+                result.towers.Add(new TowerSnapshot { ownerId = 0, index = i, remainingHp = hp });
             }
-
             for (int i = 0; i < remoteTowers.Length; i++)
             {
-                var t = remoteTowers[i];
-                int hp = (t != null) ? t.currentHp : 0;
-
-                result.towers.Add(new TowerSnapshot
-                {
-                    ownerId = 1,
-                    index = i,
-                    remainingHp = hp
-                });
+                int hp = (remoteTowers[i] != null) ? remoteTowers[i].currentHp : 0;
+                result.towers.Add(new TowerSnapshot { ownerId = 1, index = i, remainingHp = hp });
             }
 
             match.lastBattleResult = result;
             match.pendingBattle = null;
 
-            Debug.Log($"[BattleSceneController] Battle finished. Winner = {result.winnerId}. " +
-                      $"Survivors: local={result.survivorsLocal.Count}, remote={result.survivorsRemote.Count}");
+            SceneManager.UnloadSceneAsync(gameObject.scene);
+        }
+    }
 
-            // Unload this BattleStage scene and return to card-phase context.
-            var scene = gameObject.scene;
-            SceneManager.UnloadSceneAsync(scene);
+    /// <summary>
+    /// Keeps a consistent local yaw offset on the assigned Transform every frame,
+    /// regardless of how the parent/root rotates for movement.
+    /// </summary>
+    [DisallowMultipleComponent]
+    internal sealed class VisualYawApplier : MonoBehaviour
+    {
+        public float yawOffsetDegrees;
+        private Quaternion _base;
+        private void Awake() { _base = transform.localRotation; }
+        private void LateUpdate()
+        {
+            transform.localRotation = Quaternion.Euler(0f, yawOffsetDegrees, 0f) * _base;
         }
     }
 }

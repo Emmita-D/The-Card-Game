@@ -7,6 +7,7 @@ using Game.Match.Mana;   // ManaPool
 using Game.Core;
 using Game.Match.State;
 using Game.Match.Graveyard;
+using Game.Match.CardPhase;   // 👈 NEW
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -174,6 +175,18 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         {
             Vector3 center = grid.TileCenterToWorld(origin, 0f)
                            + new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
+
+            // NEW: Record the placement for the battle layer
+            var reg = BattlePlacementRegistry.Instance;
+            int owner = (instance != null) ? instance.ownerId : 0; // local = 0 by your convention
+            if (reg != null)
+            {
+                reg.Register(so, center, owner);
+            }
+            else
+            {
+                Debug.LogWarning("[DraggableCard] BattlePlacementRegistry.Instance is null; placement not recorded.");
+            }
 
             var go = Instantiate(unitPrefab, center, Quaternion.identity, unitsParent);
 
