@@ -7,7 +7,6 @@ using System.Reflection;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using Game.Match.Cards;
 
 public class CardView : MonoBehaviour
 {

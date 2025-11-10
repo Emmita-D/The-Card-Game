@@ -21,8 +21,24 @@ namespace Game.Match.Graveyard
         public void NotifyNow()
         {
             if (_sent) return;
-            if (source != null)
-                GraveyardService.Instance.Add(ownerId, source);
+
+            // No source card? Nothing to record.
+            if (source == null)
+            {
+                _sent = true;
+                return;
+            }
+
+            // During normal gameplay this will return the singleton, and if needed create it.
+            // During shutdown it can return null — in that case we simply skip.
+            var gy = GraveyardService.TryGet();
+            if (gy == null)
+            {
+                _sent = true;
+                return;
+            }
+
+            gy.Add(ownerId, source);
             _sent = true;
         }
 

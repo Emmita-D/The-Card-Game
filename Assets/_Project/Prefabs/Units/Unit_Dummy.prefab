@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 4931818027128259967}
   - component: {fileID: 8924956861144990043}
   - component: {fileID: -3872159759191884165}
+  - component: {fileID: 7215753626597577834}
   m_Layer: 0
   m_Name: Unit_Dummy
   m_TagString: Untagged
@@ -257,3 +258,17 @@ MonoBehaviour:
   health: 0
   rangeMeters: 0
   realm: 0
+--- !u!114 &7215753626597577834
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9141055413172558978}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 42178c9927a4c8d47a7250a12c981794, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Graveyard.GraveyardOnDestroy
+  source: {fileID: 0}
+  ownerId: 0

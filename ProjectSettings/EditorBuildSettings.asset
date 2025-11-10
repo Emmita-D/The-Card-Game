@@ -5,9 +5,18 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/_Project/Scenes/Boot.unity
+    guid: 727c999fb259e6e48b025362b5ca27f3
+  - enabled: 1
+    path: Assets/_Project/Scenes/CardPhase.unity
+    guid: e858c5bf9e8b72547a1272fe32ddc123
+  - enabled: 1
+    path: Assets/_Project/Scenes/BattleStage.unity
+    guid: 2a6bbd634ec175841a047f3cdb3c2c71
   m_configObjects:
     com.unity.addressableassets: {fileID: 11400000, guid: c612ad8d3d7ae2146981a40ca3e92bd3, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
