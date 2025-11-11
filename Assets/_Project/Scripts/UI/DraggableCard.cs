@@ -7,7 +7,7 @@ using Game.Match.Mana;   // ManaPool
 using Game.Core;
 using Game.Match.State;
 using Game.Match.Graveyard;
-using Game.Match.CardPhase;   // 👈 NEW
+using Game.Match.CardPhase;   // 👈 needed for BattlePlacementRegistry
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -181,6 +181,21 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             int owner = (instance != null) ? instance.ownerId : 0; // local = 0 by your convention
             if (reg != null)
             {
+                // Compute TRUE board center X from bounds (renderer > collider > fallback)
+                float centerX = grid.transform.position.x;
+                var rend = grid.GetComponentInChildren<Renderer>();
+                if (rend != null)
+                {
+                    centerX = rend.bounds.center.x;
+                }
+                else
+                {
+                    var coll = grid.GetComponentInChildren<Collider>();
+                    if (coll != null)
+                        centerX = coll.bounds.center.x;
+                }
+
+                reg.SetLocalBoardCenterX(centerX);        // <- patched line
                 reg.Register(so, center, owner);
             }
             else
@@ -198,10 +213,10 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
             float groundY = grid.transform.position.y;
             var col = go.GetComponentInChildren<Collider>();
-            var rend = (col == null) ? go.GetComponentInChildren<Renderer>() : null;
+            var rendUnit = (col == null) ? go.GetComponentInChildren<Renderer>() : null;
             float halfH = 0.5f;
             if (col != null) halfH = col.bounds.extents.y;
-            else if (rend != null) halfH = rend.bounds.extents.y;
+            else if (rendUnit != null) halfH = rendUnit.bounds.extents.y;
 
             var p = go.transform.position; p.y = groundY + halfH; go.transform.position = p;
 

@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using Game.Match.State;   // BattleDescriptor, BattleUnitSeed, BattleResult, UnitSnapshot, TowerSnapshot
 using Game.Match.Units;
+using Game.Match.CardPhase; // <--- to read board center from BattlePlacementRegistry
 
 namespace Game.Match.Battle
 {
@@ -10,7 +11,9 @@ namespace Game.Match.Battle
     /// Battle orchestrator:
     /// - Hides CardPhase scene roots while the battle runs
     /// - Spawns units from seeds
-    /// - Maps CardPhase positions to the lane without scaling: X->laneRight, Z->laneFwd
+    /// - Maps CardPhase positions to the lane without scaling:
+    ///     CardPhase X -> laneRight (relative to CardPhase board CENTER X, not mean of placements)
+    ///     CardPhase Z -> laneFwd   (front row anchored a small offset from localSpawn)
     /// - Grounds units and keeps a stable visual yaw
     /// - Resolves battle and unloads this scene
     /// </summary>
@@ -30,7 +33,7 @@ namespace Game.Match.Battle
         [Tooltip("Name of the Card Phase scene to hide while the battle runs.")]
         [SerializeField] private string cardPhaseSceneName = "CardPhase";
 
-        [Header("Mapping (no heuristics)")]
+        [Header("Mapping (no scaling)")]
         [Tooltip("How far in front of localSpawn we place the frontmost CardPhase row.")]
         [SerializeField] private float startLineForwardOffset = 0.25f;
 
@@ -57,7 +60,6 @@ namespace Game.Match.Battle
         {
             if (combatResolver == null) combatResolver = FindObjectOfType<CombatResolver>();
         }
-
         private void OnEnable()
         {
             if (combatResolver != null) combatResolver.OnSideDefeated += HandleSideDefeated;
@@ -80,7 +82,7 @@ namespace Game.Match.Battle
             _laneRight = Vector3.Cross(Vector3.up, _laneFwd).normalized;
             _lanePlaneY = 0.5f * (localSpawn.position.y + remoteSpawn.position.y);
 
-            // Hide CardPhase visuals so the board/UI don't bleed into battle
+            // Hide CardPhase roots so the board/UI don't bleed into battle
             HideSceneRoots(cardPhaseSceneName);
 
             var desc = match.pendingBattle;
@@ -96,11 +98,9 @@ namespace Game.Match.Battle
             Vector3 localDir = _laneFwd;
             Vector3 remoteDir = -_laneFwd;
 
-            // Spawn LOCAL using rigid mapping from CardPhase to lane (X->right, Z->forward)
             if (desc.localUnits.Count > 0)
                 SpawnMappedLocals(desc.localUnits, localDir);
 
-            // Spawn REMOTE as before (debug/offsets or exact)
             foreach (var seed in desc.remoteUnits)
             {
                 if (seed.card == null) continue;
@@ -113,29 +113,35 @@ namespace Game.Match.Battle
         }
 
         /// <summary>
-        /// Use the actual CardPhase positions, but re-express them in the lane frame:
-        /// - CardPhase X -> laneRight
-        /// - CardPhase Z -> laneFwd
-        /// We translate so the frontmost row (min Z in CardPhase) sits at a small forward offset
-        /// from localSpawn, and we center around the group's mean X so it "drops in place"
-        /// without any spreading or scaling.
+        /// Map CardPhase positions to the lane frame:
+        ///   X -> laneRight, measured from the CardPhase BOARD CENTER X (supplied by registry)
+        ///   Z -> laneFwd,   measured from the frontmost placed row (min Z)
+        /// This preserves left/right bias exactly as seen in CardPhase (no centering to placements).
         /// </summary>
         private void SpawnMappedLocals(List<BattleUnitSeed> locals, Vector3 moveForward)
         {
-            // Gather stats only from seeds that actually used exact positions
-            float minZ = float.PositiveInfinity;
-            float sumX = 0f; int count = 0;
+            // Get board center X from registry (set by DraggableCard)
+            float boardCenterX;
+            var reg = BattlePlacementRegistry.Instance;
+            if (reg != null && reg.TryGetLocalBoardCenterX(out var cx)) boardCenterX = cx;
+            else
+            {
+                // Fallback: if center wasn't set, use zero so at least we don't re-center to mean
+                boardCenterX = 0f;
+                Debug.LogWarning("[BattleSceneController] Local board center X not set; using 0. " +
+                                 "Call BattlePlacementRegistry.SetLocalBoardCenterX from CardPhase.");
+            }
 
+            // Find the frontmost Z among the placed locals (so that front row touches start offset)
+            float minZ = float.PositiveInfinity;
             foreach (var s in locals)
             {
                 if (s.card == null) continue;
                 Vector3 p = s.useExactPosition ? s.exactPosition : localSpawn.position + _laneFwd * s.spawnOffset;
-                sumX += p.x; count++;
                 if (p.z < minZ) minZ = p.z;
             }
-            if (count == 0) return;
+            if (minZ == float.PositiveInfinity) return;
 
-            float meanX = sumX / count;
             Vector3 anchor = localSpawn.position + _laneFwd * startLineForwardOffset;
 
             foreach (var seed in locals)
@@ -144,8 +150,8 @@ namespace Game.Match.Battle
 
                 Vector3 p = seed.useExactPosition ? seed.exactPosition : localSpawn.position + _laneFwd * seed.spawnOffset;
 
-                float dx = p.x - meanX;   // lateral relative to group center (CardPhase X)
-                float dz = p.z - minZ;    // depth relative to frontmost row  (CardPhase Z)
+                float dx = p.x - boardCenterX; // preserve side bias relative to the BOARD center
+                float dz = p.z - minZ;         // preserve depth ordering relative to the front row
 
                 Vector3 desired = anchor + _laneRight * dx + _laneFwd * dz;
                 SpawnOne(seed, desired, moveForward, "LOCAL*mapped");

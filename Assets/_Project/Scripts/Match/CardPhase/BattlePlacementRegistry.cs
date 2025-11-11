@@ -9,6 +9,8 @@ namespace Game.Match.CardPhase
     /// Card-phase registry of units that have been placed on the grid.
     /// Stores card + world position + ownerId, and can build BattleUnitSeed lists.
     /// </summary>
+    /// 
+
     public class BattlePlacementRegistry : MonoBehaviour
     {
         public static BattlePlacementRegistry Instance { get; private set; }
@@ -36,6 +38,20 @@ namespace Game.Match.CardPhase
         /// <summary>
         /// Register a placed unit at the given world position.
         /// </summary>
+        /// 
+        private float? _localBoardCenterX;
+        public void SetLocalBoardCenterX(float centerX)
+        {
+            _localBoardCenterX = centerX;
+        }
+        public bool TryGetLocalBoardCenterX(out float centerX)
+        {
+            if (_localBoardCenterX.HasValue) { centerX = _localBoardCenterX.Value; return true; }
+            centerX = 0f;
+            return false;
+        }
+
+
         public void Register(CardSO card, Vector3 worldPos, int ownerId)
         {
             if (card == null) return;
