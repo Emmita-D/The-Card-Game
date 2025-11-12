@@ -110,6 +110,12 @@ namespace Game.Match.Battle
 
                 SpawnOne(seed, desired, remoteDir, "REMOTE");
             }
+            var bar = FindObjectOfType<Game.Match.UI.BattleUnitBarUI>(true);
+            if (bar != null)
+            {
+                bar.Initialize(combatResolver, 0);
+                bar.BootstrapFrom(combatResolver.LocalUnits);
+            }
         }
 
         /// <summary>

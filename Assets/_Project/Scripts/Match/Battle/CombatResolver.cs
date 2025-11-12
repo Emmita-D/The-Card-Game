@@ -23,6 +23,9 @@ namespace Game.Match.Battle
         [Tooltip("Default melee range if UnitRuntime.rangeMeters is 0.")]
         public float defaultMeleeRangeMeters = 1.5f;
 
+        public event System.Action<UnitAgent> UnitRegistered;
+        public event System.Action<UnitAgent> UnitDied;
+
         /// <summary>
         /// Fired when one side has no towers left.
         /// Parameter = loser ownerId (0 or 1).
@@ -52,6 +55,7 @@ namespace Game.Match.Battle
                 if (!_remoteUnits.Contains(unit))
                     _remoteUnits.Add(unit);
             }
+            UnitRegistered?.Invoke(unit);
         }
 
         public void RegisterTowers(BattleTower[] local, BattleTower[] remote)
@@ -181,6 +185,9 @@ namespace Game.Match.Battle
                         enemyRuntime.health -= damage;
                         if (enemyRuntime.health <= 0)
                         {
+                            UnitDied?.Invoke(bestEnemyUnit);
+                            if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
+                            else _remoteUnits.Remove(bestEnemyUnit);
                             Object.Destroy(bestEnemyUnit.gameObject);
                         }
                     }
