@@ -4,6 +4,7 @@ using UnityEngine.SceneManagement;
 using Game.Match.State;   // BattleDescriptor, BattleUnitSeed, BattleResult, UnitSnapshot, TowerSnapshot
 using Game.Match.Units;
 using Game.Match.CardPhase; // <--- to read board center from BattlePlacementRegistry
+using Game.Match.Battle;    // [ReturnPatch] BattleRecallController, UnitOriginStamp
 
 namespace Game.Match.Battle
 {
@@ -51,10 +52,14 @@ namespace Game.Match.Battle
         [Tooltip("Max distance for the downward ground ray.")]
         [SerializeField] private float groundRayMaxDistance = 100f;
 
+        // [ReturnPatch] Recall controller hook (assigned in inspector)
+        [Header("Return / Recall")]
+        [SerializeField] private BattleRecallController recallController;
+
         private bool _battleFinished;
         private Vector3 _laneFwd;     // local -> remote
         private Vector3 _laneRight;   // right relative to lane forward
-        private float _lanePlaneY;  // fallback Y if raycast misses
+        private float _lanePlaneY;    // fallback Y if raycast misses
 
         private void Awake()
         {
@@ -63,10 +68,15 @@ namespace Game.Match.Battle
         private void OnEnable()
         {
             if (combatResolver != null) combatResolver.OnSideDefeated += HandleSideDefeated;
+            // [ReturnPatch] subscribe to emptiness event if controller is present
+            if (recallController != null) recallController.OnAllSidesEmpty += ReturnToCardPhase;
         }
         private void OnDisable()
         {
             if (combatResolver != null) combatResolver.OnSideDefeated -= HandleSideDefeated;
+            // [ReturnPatch] unsubscribe
+            if (recallController != null)
+                recallController.OnAllSidesEmpty -= ReturnToCardPhase;
         }
 
         private void Start()
@@ -90,7 +100,31 @@ namespace Game.Match.Battle
 
             Debug.Log($"[BattleSceneController] pendingBattle: local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
             combatResolver?.RegisterTowers(localTowers, remoteTowers);
+
+            // [ReturnPatch] Initialize recall controller (local owner = 0)
+            if (recallController != null)
+            {
+                recallController?.Initialize(combatResolver, 0);
+            }
+
             SpawnUnits(desc);
+            // init + subscribe
+            if (recallController != null)
+            {
+                recallController.Initialize(combatResolver, localOwner: 0);
+                recallController.OnAllSidesEmpty += ReturnToCardPhase;
+            }
+            else
+            {
+                // fallback if you forgot to drag it in the inspector
+                recallController = FindObjectOfType<BattleRecallController>(true);
+                if (recallController != null)
+                {
+                    recallController.Initialize(combatResolver, localOwner: 0);
+                    recallController.OnAllSidesEmpty += ReturnToCardPhase;
+                }
+            }
+
         }
 
         private void SpawnUnits(BattleDescriptor desc)
@@ -108,8 +142,10 @@ namespace Game.Match.Battle
                     ? seed.exactPosition
                     : remoteSpawn.position + (-_laneFwd) * seed.spawnOffset;
 
-                SpawnOne(seed, desired, remoteDir, "REMOTE");
+                // [ReturnPatch] For remote AI/test units we may not have a true CardPhase origin; pass Vector3.zero
+                SpawnOne(seed, desired, remoteDir, "REMOTE", Vector3.zero);
             }
+
             var bar = FindObjectOfType<Game.Match.UI.BattleUnitBarUI>(true);
             if (bar != null)
             {
@@ -154,17 +190,22 @@ namespace Game.Match.Battle
             {
                 if (seed.card == null) continue;
 
+                // 'p' is the original CardPhase world position when useExactPosition is true.
                 Vector3 p = seed.useExactPosition ? seed.exactPosition : localSpawn.position + _laneFwd * seed.spawnOffset;
 
                 float dx = p.x - boardCenterX; // preserve side bias relative to the BOARD center
                 float dz = p.z - minZ;         // preserve depth ordering relative to the front row
 
                 Vector3 desired = anchor + _laneRight * dx + _laneFwd * dz;
-                SpawnOne(seed, desired, moveForward, "LOCAL*mapped");
+
+                // [ReturnPatch] pass along the CardPhase origin world (best effort)
+                Vector3 originWorld = seed.useExactPosition ? p : p; // if not exact, this is an approximation
+                SpawnOne(seed, desired, moveForward, "LOCAL*mapped", originWorld);
             }
         }
 
-        private void SpawnOne(BattleUnitSeed seed, Vector3 desiredWorldPos, Vector3 moveForward, string label)
+        // [ReturnPatch] Added origin stamping parameter so survivors can rehydrate onto their original tiles.
+        private void SpawnOne(BattleUnitSeed seed, Vector3 desiredWorldPos, Vector3 moveForward, string label, Vector3 originCardPhaseWorld)
         {
             float groundY = GetGroundYAt(desiredWorldPos);
             Vector3 spawnPos = new Vector3(desiredWorldPos.x, groundY, desiredWorldPos.z);
@@ -183,6 +224,12 @@ namespace Game.Match.Battle
             agent.Initialize(seed.card, seed.ownerId, moveForward);
             combatResolver?.RegisterUnit(agent);
 
+            // [ReturnPatch] Stamp original CardPhase origin so we can return survivors to the same tiles later.
+            var stamp = go.AddComponent<UnitOriginStamp>();
+            stamp.ownerId = seed.ownerId;
+            stamp.sourceCard = seed.card;
+            stamp.cardPhaseWorld = originCardPhaseWorld;
+
             Debug.Log($"[BattleSceneController] {label} card={seed.card.name}, owner={seed.ownerId}, pos={go.transform.position}");
         }
 
@@ -195,6 +242,15 @@ namespace Game.Match.Battle
             for (int i = 0; i < roots.Length; i++) roots[i].SetActive(false);
         }
 
+        // [ReturnPatch] Show roots again when we go back to CardPhase
+        private void ShowSceneRoots(string sceneName)
+        {
+            if (string.IsNullOrEmpty(sceneName)) return;
+            var s = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
+            if (!s.IsValid()) return;
+            foreach (var go in s.GetRootGameObjects())
+                go.SetActive(true);
+        }
         private float GetGroundYAt(Vector3 worldXZ)
         {
             int mask = (groundMask.value == 0) ? ~0 : groundMask.value;
@@ -294,7 +350,54 @@ namespace Game.Match.Battle
 
             SceneManager.UnloadSceneAsync(gameObject.scene);
         }
+
+        // [ReturnPatch] Called by recall controller when both sides have no units on field.
+        private void ReturnToCardPhase()
+        {
+            // Unhide CardPhase
+            ShowSceneRoots(cardPhaseSceneName);
+
+            // Apply survivors back into CardPhase (HP restored on next spawn)
+            var match = MatchRuntimeService.Instance;
+            var survivors = match?.survivors;
+            int a = 0, b = 0;
+            if (survivors != null)
+            {
+                (a, b) = survivors.ConsumeAndApplyToCardPhase();
+            }
+
+            // Read current tower HP (persisting between phases)
+            int aTowers = 0, bTowers = 0;
+            for (int i = 0; i < localTowers.Length; i++) if (localTowers[i] != null) aTowers += Mathf.Max(0, localTowers[i].currentHp);
+            for (int i = 0; i < remoteTowers.Length; i++) if (remoteTowers[i] != null) bTowers += Mathf.Max(0, remoteTowers[i].currentHp);
+
+            Debug.Log($"[Return] Battle ended → CardPhase (survivors A={a}, B={b}; towers HP sum: A={aTowers}, B={bTowers})");
+
+            // 🔻 NEW: hide this battle scene (keeps it loaded; no regen)
+            HideThisBattleScene();
+
+            // Optional: pause battle systems too
+            if (combatResolver) combatResolver.enabled = false;
+        }
+        // Hide all roots in THIS (BattleStage) scene
+        private void HideThisBattleScene()
+        {
+            var s = gameObject.scene;
+            if (!s.IsValid()) return;
+
+            // Disable cameras & listeners in this scene first (avoids double renders / audio)
+            foreach (var root in s.GetRootGameObjects())
+            {
+                foreach (var cam in root.GetComponentsInChildren<Camera>(true)) cam.enabled = false;
+                foreach (var al in root.GetComponentsInChildren<AudioListener>(true)) al.enabled = false;
+            }
+
+            foreach (var root in s.GetRootGameObjects())
+                root.SetActive(false);
+        }
+
     }
+
 
     /// <summary>
     /// Keeps a consistent local yaw offset on the assigned Transform every frame,

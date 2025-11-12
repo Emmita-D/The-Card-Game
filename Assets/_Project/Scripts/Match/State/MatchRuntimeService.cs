@@ -143,5 +143,87 @@ namespace Game.Match.State
             // Note: we are not wiping decks/hands here yet.
             // We'll decide that behaviour when we hook this into the full match flow.
         }
+        // ----- Survivor Registry -----
+        [System.Serializable]
+        public class SurvivorRegistry
+        {
+            [System.Serializable]
+            public struct Survivor
+            {
+                public int ownerId;
+                public Cards.CardSO card;
+                public Vector3 originWorld; // CardPhase snapped world position
+            }
+
+            private readonly List<Survivor> _pending = new();
+
+            public void RecordSurvivors(int ownerId, System.Collections.Generic.IEnumerable<Game.Match.Battle.UnitAgent> agents)
+            {
+                foreach (var a in agents)
+                {
+                    if (a == null) continue;
+                    var rt = a.GetComponent<Game.Match.Units.UnitRuntime>();
+                    if (rt == null || rt.health <= 0) continue; // dead don't return
+
+                    var stamp = a.GetComponent<Game.Match.Battle.UnitOriginStamp>();
+                    if (stamp == null || stamp.sourceCard == null) continue;
+
+                    _pending.Add(new Survivor
+                    {
+                        ownerId = ownerId,
+                        card = stamp.sourceCard,
+                        originWorld = stamp.cardPhaseWorld
+                    });
+                }
+            }
+
+            /// <summary>
+            /// Applies survivors to CardPhase: marks grid occupancy and re-registers placements.
+            /// HP is restored implicitly on next battle spawn (UnitRuntime.InitFrom).
+            /// Returns survivor counts for both sides.
+            /// </summary>
+            public (int a, int b) ConsumeAndApplyToCardPhase()
+            {
+                var grid = Object.FindObjectOfType<Game.Match.Grid.GridService>(includeInactive: true);
+                var reg = Game.Match.CardPhase.BattlePlacementRegistry.Instance;
+
+                int a = 0, b = 0;
+
+                if (grid == null || reg == null)
+                {
+                    Debug.LogWarning("[SurvivorRegistry] Missing GridService or BattlePlacementRegistry in CardPhase scene.");
+                    _pending.Clear();
+                    return (0, 0);
+                }
+
+                foreach (var s in _pending)
+                {
+                    if (!grid.WorldToTile(s.originWorld, out var tile))
+                    {
+                        Debug.LogWarning($"[SurvivorRegistry] Origin world {s.originWorld} not on grid; skipping.");
+                        continue;
+                    }
+
+                    // Occupy the original tiles and register the placement
+                    var size = s.card.size;
+                    if (!grid.CanPlace(size, tile))
+                    {
+                        Debug.LogWarning($"[SurvivorRegistry] Tile {tile} occupied; skipping survivor {s.card.name}.");
+                        continue;
+                    }
+
+                    grid.Place(size, tile);
+                    reg.Register(s.card, grid.TileToWorld(tile, 0f), s.ownerId);
+
+                    if (s.ownerId == 0) a++; else b++;
+                }
+
+                _pending.Clear();
+                return (a, b);
+            }
+        }
+
+        // In MatchRuntimeService : MonoBehaviour (field + init)
+        public SurvivorRegistry survivors = new SurvivorRegistry();
     }
 }

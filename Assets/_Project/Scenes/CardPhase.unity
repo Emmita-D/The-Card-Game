@@ -3340,9 +3340,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Battle.CardPhaseBattleLauncher
   battleSceneName: BattleStage
-  debugRemoteUnits:
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: 59626b83f0b71c94cbcaf786aed2ab39, type: 2}
+  debugRemoteUnits: []
 --- !u!4 &1824448879
 Transform:
   m_ObjectHideFlags: 0
