@@ -11,7 +11,7 @@ namespace Game.Match.Battle
     /// - Build a BattleDescriptor from real placements (local),
     /// - Add debug units for the remote side (for now),
     /// - Store it in MatchRuntimeService.pendingBattle,
-    /// - Load the BattleStage scene additively.
+    /// - Either load the BattleStage scene once (first time) or reuse it on later rounds.
     /// </summary>
     public class CardPhaseBattleLauncher : MonoBehaviour
     {
@@ -36,13 +36,6 @@ namespace Game.Match.Battle
             {
                 Debug.LogError("[CardPhaseBattleLauncher] Battle scene name is empty.");
                 return;
-            }
-
-            // --- NEW: if a persistent CombatResolver exists, reset it so no stale state carries over.
-            if (CombatResolver.Instance != null)
-            {
-                Debug.Log("[CardPhaseBattleLauncher] Found existing CombatResolver → ResetForNewBattle()");
-                CombatResolver.Instance.ResetForNewBattle();
             }
 
             var desc = new BattleDescriptor();
@@ -88,20 +81,35 @@ namespace Game.Match.Battle
             Debug.Log($"[CardPhaseBattleLauncher] Starting battle: " +
                       $"{desc.localUnits.Count} local (real) vs {desc.remoteUnits.Count} remote (debug).");
 
-            // --- CHANGED: clear the registry AFTER the battle scene has finished loading.
+            // --- NEW: If the BattleStage scene is already loaded, reuse it instead of loading again.
+            if (BattleSceneController.Instance != null &&
+                BattleSceneController.Instance.gameObject.scene.isLoaded)
+            {
+                Debug.Log("[CardPhaseBattleLauncher] Reusing existing BattleStage scene for new battle round.");
+
+                BattleSceneController.Instance.BeginBattleRound(desc);
+
+                // Safe to clear registry now; BattleSceneController works from the descriptor we passed.
+                reg?.Clear();
+                return;
+            }
+
+            // --- FIRST TIME: hand the descriptor to the Battle scene and load it additively.
+            BattleSceneController.SetPendingDescriptor(desc);
+
             var op = SceneManager.LoadSceneAsync(battleSceneName, LoadSceneMode.Additive);
             if (op != null)
             {
                 op.completed += _ =>
                 {
-                    // Safe to clear now; battle scene has read MatchRuntimeService.pendingBattle.
+                    // Safe to clear now; BattleSceneController.Start() has consumed the descriptor.
                     reg?.Clear();
                     Debug.Log("[CardPhaseBattleLauncher] Battle scene loaded → registry cleared.");
                 };
             }
             else
             {
-                // Fallback (shouldn’t happen, but keep old behavior if the async op is null)
+                // Fallback (shouldn’t happen, but preserve behavior)
                 reg?.Clear();
             }
         }

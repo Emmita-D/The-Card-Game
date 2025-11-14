@@ -47,11 +47,14 @@ namespace Game.Match.Battle
 
         private void Awake()
         {
+            // If there is already a CombatResolver (typically from a previous,
+            // now-hidden Battle scene), destroy THAT one and let this one be
+            // the new global instance.
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
-                return;
+                Destroy(Instance.gameObject);
             }
+
             Instance = this;
         }
 

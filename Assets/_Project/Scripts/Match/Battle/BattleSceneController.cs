@@ -20,6 +20,14 @@ namespace Game.Match.Battle
     /// </summary>
     public class BattleSceneController : MonoBehaviour
     {
+        public static BattleSceneController Instance { get; private set; }
+
+        // First-time handoff from CardPhase -> Battle scene load
+        private static BattleDescriptor pendingDescriptor;
+
+        // Descriptor for the currently running battle round (reused scene)
+        private BattleDescriptor currentDescriptor;
+
         [Header("Scene References")]
         public Transform localSpawn;     // lane start (local side)
         public Transform remoteSpawn;    // lane end   (remote side)
@@ -59,12 +67,27 @@ namespace Game.Match.Battle
         [SerializeField] private BattleRecallController recallController;
 
         private bool _battleFinished;
+        private bool _laneInitialized;
         private Vector3 _laneFwd;     // local -> remote
         private Vector3 _laneRight;   // right relative to lane forward
         private float _lanePlaneY;    // fallback Y if raycast misses
 
+        public static void SetPendingDescriptor(BattleDescriptor descriptor)
+        {
+            pendingDescriptor = descriptor;
+        }
+
         private void Awake()
         {
+            // Singleton for the Battle scene controller
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            Instance = this;
+
             if (combatResolver == null) combatResolver = FindObjectOfType<CombatResolver>();
         }
 
@@ -82,13 +105,81 @@ namespace Game.Match.Battle
 
         private void Start()
         {
-            // Make sure this scene is fully active for a fresh battle
+            // First time this scene is loaded:
+            // - Either we were given a descriptor via SetPendingDescriptor(...)
+            // - Or we fall back to MatchRuntimeService.pendingBattle (old path).
+            BattleDescriptor desc = pendingDescriptor;
+
+            if (desc == null)
+            {
+                var match = MatchRuntimeService.Instance;
+                if (match != null)
+                {
+                    desc = match.pendingBattle;
+                }
+            }
+
+            if (desc == null)
+            {
+                Debug.LogWarning("[BattleSceneController] Start() → no BattleDescriptor (pendingDescriptor and MatchRuntimeService.pendingBattle are null).");
+                return;
+            }
+
+            BeginBattleRound(desc);
+
+            // Clear the one-shot static descriptor; future rounds will be triggered directly
+            pendingDescriptor = null;
+        }
+
+        /// <summary>
+        /// Called for:
+        /// - The very first battle when the scene loads (from Start()).
+        /// - All subsequent battles in the same match (from CardPhaseBattleLauncher via reuse).
+        /// Reuses the same towers and CombatResolver so tower HP naturally persists between rounds.
+        /// </summary>
+        public void BeginBattleRound(BattleDescriptor desc)
+        {
+            if (desc == null)
+            {
+                Debug.LogWarning("[BattleSceneController] BeginBattleRound called with null descriptor.");
+                return;
+            }
+
+            currentDescriptor = desc;
+            _battleFinished = false;
+
+            if (unitPrefab == null)
+            {
+                Debug.LogError("[BattleSceneController] unitPrefab not assigned.");
+                return;
+            }
+
+            SetupLaneFrame();
+
+            // Hide CardPhase roots so the board/UI don't bleed into battle
+            HideSceneRoots(cardPhaseSceneName);
+
+            // Make sure this scene is fully active for this battle
             ShowThisBattleScene();
 
-            var match = MatchRuntimeService.Instance;
-            if (match == null) { Debug.LogWarning("[BattleSceneController] MatchRuntimeService missing."); return; }
-            if (unitPrefab == null) { Debug.LogError("[BattleSceneController] unitPrefab not assigned."); return; }
-            if (localSpawn == null || remoteSpawn == null) { Debug.LogError("[BattleSceneController] spawn points not assigned."); return; }
+            // Fresh combat state for the new round but KEEP tower HP as-is
+            ReinitCombatResolver();
+
+            // Spawn units for this particular round
+            SpawnUnits(desc);
+
+            Debug.Log($"[BattleSceneController] BeginBattleRound → local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
+        }
+
+        private void SetupLaneFrame()
+        {
+            if (_laneInitialized) return;
+
+            if (localSpawn == null || remoteSpawn == null)
+            {
+                Debug.LogError("[BattleSceneController] spawn points not assigned.");
+                return;
+            }
 
             // Lane frame from spawn points
             _laneFwd = remoteSpawn.position - localSpawn.position; _laneFwd.y = 0f;
@@ -96,19 +187,7 @@ namespace Game.Match.Battle
             _laneRight = Vector3.Cross(Vector3.up, _laneFwd).normalized;
             _lanePlaneY = 0.5f * (localSpawn.position.y + remoteSpawn.position.y);
 
-            // Hide CardPhase roots so the board/UI don't bleed into battle
-            HideSceneRoots(cardPhaseSceneName);
-
-            var desc = match.pendingBattle;
-            if (desc == null) { Debug.LogWarning("[BattleSceneController] No pendingBattle descriptor."); return; }
-
-            Debug.Log($"[BattleSceneController] pendingBattle: local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
-
-            // Fully reset + (re)register towers for this new round
-            ReinitCombatResolver();
-
-            // Spawn all participants
-            SpawnUnits(desc);
+            _laneInitialized = true;
         }
 
         private void SpawnUnits(BattleDescriptor desc)
@@ -118,9 +197,6 @@ namespace Game.Match.Battle
 
             Vector3 localDir = _laneFwd;
             Vector3 remoteDir = -_laneFwd;
-
-            // IMPORTANT: Do NOT reset here — ReinitCombatResolver() already reset & registered towers.
-            // combatResolver?.ResetForNewBattle();  <-- removed
 
             if (desc.localUnits.Count > 0)
                 SpawnMappedLocals(desc.localUnits, localDir);
@@ -153,7 +229,8 @@ namespace Game.Match.Battle
                 if (!combatResolver.gameObject.activeSelf) combatResolver.gameObject.SetActive(true);
                 if (!combatResolver.enabled) combatResolver.enabled = true;
 
-                // Fresh state for a new battle + register towers ONCE
+                // Fresh state for a new battle (units, internals, etc.) but towers themselves
+                // are reused objects, so their currentHp persists between rounds.
                 combatResolver.ResetForNewBattle();
                 combatResolver.RegisterTowers(localTowers, remoteTowers);
             }
@@ -352,6 +429,7 @@ namespace Game.Match.Battle
             match.lastBattleResult = result;
             match.pendingBattle = null;
 
+            // Match is over → unload the whole BattleStage scene.
             SceneManager.UnloadSceneAsync(gameObject.scene);
         }
 
@@ -377,7 +455,7 @@ namespace Game.Match.Battle
 
             Debug.Log($"[Return] Battle ended → CardPhase (survivors A={a}, B={b}; towers HP sum: A={aTowers}, B={bTowers})");
 
-            // Hide this battle scene (keep loaded)
+            // Hide this battle scene (keep loaded) so we can reuse it next time.
             HideThisBattleScene();
 
             // Pause battle systems
