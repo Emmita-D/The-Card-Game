@@ -6,8 +6,7 @@ namespace Game.Match.Battle
 {
     /// <summary>
     /// Central brain for combat: tracks units and towers, picks targets, and applies damage.
-    /// Step 5: simple nearest-target logic and shared attack cadence.
-    /// Step 6: detects when a side has no towers left and raises OnSideDefeated.
+    /// Uses collider-based range checks so units stop at towers instead of walking through them.
     /// </summary>
     public class CombatResolver : MonoBehaviour
     {
@@ -37,9 +36,24 @@ namespace Game.Match.Battle
         private readonly List<BattleTower> _localTowers = new();
         private readonly List<BattleTower> _remoteTowers = new();
 
+        // Timing accumulators (you might extend this later if you do fixed-step combat).
+        private float _lastTickTime;
+        private float _accumulatedUnitTime;
+        private float _accumulatedTowerTime;
+
         // Expose read-only views so BattleSceneController can snapshot survivors.
         public IReadOnlyList<UnitAgent> LocalUnits => _localUnits;
         public IReadOnlyList<UnitAgent> RemoteUnits => _remoteUnits;
+
+        private void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+        }
 
         public void RegisterUnit(UnitAgent unit)
         {
@@ -55,6 +69,7 @@ namespace Game.Match.Battle
                 if (!_remoteUnits.Contains(unit))
                     _remoteUnits.Add(unit);
             }
+
             UnitRegistered?.Invoke(unit);
         }
 
@@ -82,26 +97,15 @@ namespace Game.Match.Battle
             }
         }
 
-        private void Awake()
-        {
-            if (Instance != null && Instance != this)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            Instance = this;
-        }
-
         private void Update()
         {
-            // Local units vs remote side, then remote units vs local side
+            // Units try to attack nearest valid enemy (unit first, then tower).
             TickUnits(_localUnits, _remoteUnits, _remoteTowers);
             TickUnits(_remoteUnits, _localUnits, _localTowers);
 
-            // Towers shoot only when their own lane is empty of friendly units
-            TickTowers(_localTowers, _remoteUnits, _remoteTowers);
-            TickTowers(_remoteTowers, _localUnits, _localTowers);
+            // Towers fire only when their side has no friendly units alive (your current rule).
+            TickTowers(_localTowers, _remoteUnits, _remoteTowers, _localUnits);
+            TickTowers(_remoteTowers, _localUnits, _localTowers, _remoteUnits);
         }
 
         private void TickUnits(List<UnitAgent> attackers, List<UnitAgent> enemyUnits, List<BattleTower> enemyTowers)
@@ -112,30 +116,29 @@ namespace Game.Match.Battle
                 if (unit == null) continue;
 
                 var runtime = unit.GetComponent<UnitRuntime>();
-                if (runtime == null) continue;
-                if (runtime.health <= 0) continue;
-
-                // Default: unit can move unless we find a target in range.
-                unit.movementLocked = false;
+                if (runtime == null || runtime.health <= 0) continue;
 
                 float attackRange = runtime.rangeMeters > 0 ? runtime.rangeMeters : defaultMeleeRangeMeters;
                 float rangeSqr = attackRange * attackRange;
+
+                // Assume the unit can move unless we find a target in range this frame.
+                bool lockMovement = false;
 
                 Vector3 pos = unit.transform.position;
                 float bestDistSqr = float.MaxValue;
                 UnitAgent bestEnemyUnit = null;
                 BattleTower bestEnemyTower = null;
 
-                // Enemy units first
+                // 1) Prefer enemy units
                 for (int j = 0; j < enemyUnits.Count; j++)
                 {
                     var enemy = enemyUnits[j];
                     if (enemy == null) continue;
 
-                    var enemyRuntime = enemy.GetComponent<UnitRuntime>();
-                    if (enemyRuntime == null || enemyRuntime.health <= 0) continue;
+                    var enemyRt = enemy.GetComponent<UnitRuntime>();
+                    if (enemyRt == null || enemyRt.health <= 0) continue;
 
-                    float distSqr = (enemy.transform.position - pos).sqrMagnitude;
+                    float distSqr = SqrDistanceToAgent(enemy, pos);
                     if (distSqr < bestDistSqr)
                     {
                         bestDistSqr = distSqr;
@@ -144,16 +147,15 @@ namespace Game.Match.Battle
                     }
                 }
 
-                // If no enemy units, look at towers
+                // 2) If no enemy units, consider towers
                 if (bestEnemyUnit == null)
                 {
                     for (int j = 0; j < enemyTowers.Count; j++)
                     {
                         var tower = enemyTowers[j];
-                        if (tower == null) continue;
-                        if (tower.currentHp <= 0) continue;
+                        if (tower == null || tower.currentHp <= 0) continue;
 
-                        float distSqr = (tower.transform.position - pos).sqrMagnitude;
+                        float distSqr = SqrDistanceToTower(tower, pos);
                         if (distSqr < bestDistSqr)
                         {
                             bestDistSqr = distSqr;
@@ -163,69 +165,79 @@ namespace Game.Match.Battle
                     }
                 }
 
+                // Nothing to attack
                 if (bestEnemyUnit == null && bestEnemyTower == null)
-                    continue; // nothing to attack
-
-                if (bestDistSqr > rangeSqr)
-                    continue; // not in range yet
-
-                // We are in range: lock movement and attack on cooldown.
-                unit.movementLocked = true;
-
-                if (Time.time < unit.nextAttackTime)
-                    continue;
-
-                int damage = Mathf.Max(1, runtime.attack);
-
-                if (bestEnemyUnit != null)
                 {
-                    var enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
-                    if (enemyRuntime != null && enemyRuntime.health > 0)
+                    unit.movementLocked = false;
+                    continue;
+                }
+
+                // Not in range yet -> keep moving
+                if (bestDistSqr > rangeSqr)
+                {
+                    unit.movementLocked = false;
+                    continue;
+                }
+
+                // In range -> stop and swing on cooldown
+                lockMovement = true;
+
+                if (Time.time >= unit.nextAttackTime)
+                {
+                    int damage = Mathf.Max(1, runtime.attack);
+
+                    if (bestEnemyUnit != null)
                     {
-                        enemyRuntime.health -= damage;
-                        if (enemyRuntime.health <= 0)
+                        var enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
+                        if (enemyRuntime != null && enemyRuntime.health > 0)
                         {
-                            UnitDied?.Invoke(bestEnemyUnit);
-                            if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
-                            else _remoteUnits.Remove(bestEnemyUnit);
-                            Object.Destroy(bestEnemyUnit.gameObject);
+                            enemyRuntime.health -= damage;
+                            if (enemyRuntime.health <= 0)
+                            {
+                                // Remove & destroy
+                                if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
+                                else _remoteUnits.Remove(bestEnemyUnit);
+                                UnitDied?.Invoke(bestEnemyUnit);
+                                Destroy(bestEnemyUnit.gameObject);
+                            }
                         }
                     }
-                }
-                else if (bestEnemyTower != null)
-                {
-                    bestEnemyTower.currentHp -= damage;
-                    if (bestEnemyTower.currentHp <= 0)
+                    else // tower
                     {
-                        bestEnemyTower.currentHp = 0;
-                        OnTowerDestroyed(bestEnemyTower);
+                        bestEnemyTower.currentHp -= damage;
+                        if (bestEnemyTower.currentHp <= 0)
+                        {
+                            bestEnemyTower.currentHp = 0;
+                            OnTowerDestroyed(bestEnemyTower);
+                        }
                     }
+
+                    unit.nextAttackTime = Time.time + unitAttackIntervalSeconds;
                 }
 
-                unit.nextAttackTime = Time.time + unitAttackIntervalSeconds;
+                unit.movementLocked = lockMovement;
             }
         }
 
-        private void TickTowers(List<BattleTower> towers, List<UnitAgent> enemyUnits, List<BattleTower> enemyTowers)
+        private void TickTowers(
+            List<BattleTower> towers,
+            List<UnitAgent> enemyUnits,
+            List<BattleTower> enemyTowers,
+            List<UnitAgent> friendlyUnitsForGate)
         {
-            bool haveFriendlyUnits = towers == _localTowers
-                ? HasAliveUnits(_localUnits)
-                : HasAliveUnits(_remoteUnits);
-
-            // Towers only fire when their side has no units left
-            if (haveFriendlyUnits)
+            // Current rule: towers only shoot if their side has no units alive
+            if (HasAliveUnits(friendlyUnitsForGate))
                 return;
 
             for (int i = 0; i < towers.Count; i++)
             {
                 var tower = towers[i];
-                if (tower == null) continue;
-                if (tower.currentHp <= 0) continue;
+                if (tower == null || tower.currentHp <= 0) continue;
 
                 if (Time.time < tower.nextAttackTime)
                     continue;
 
-                float range = tower.rangeMeters;
+                float range = Mathf.Max(0.1f, tower.rangeMeters);
                 float rangeSqr = range * range;
                 Vector3 pos = tower.transform.position;
 
@@ -233,16 +245,16 @@ namespace Game.Match.Battle
                 UnitAgent bestEnemyUnit = null;
                 BattleTower bestEnemyTower = null;
 
-                // Prefer enemy units if any exist
+                // Prefer enemy units
                 for (int j = 0; j < enemyUnits.Count; j++)
                 {
                     var enemy = enemyUnits[j];
                     if (enemy == null) continue;
 
-                    var enemyRuntime = enemy.GetComponent<UnitRuntime>();
-                    if (enemyRuntime == null || enemyRuntime.health <= 0) continue;
+                    var rt = enemy.GetComponent<UnitRuntime>();
+                    if (rt == null || rt.health <= 0) continue;
 
-                    float distSqr = (enemy.transform.position - pos).sqrMagnitude;
+                    float distSqr = SqrDistanceToAgent(enemy, pos);
                     if (distSqr < bestDistSqr)
                     {
                         bestDistSqr = distSqr;
@@ -251,21 +263,20 @@ namespace Game.Match.Battle
                     }
                 }
 
-                // If no enemy units, target enemy towers
+                // If no enemy units, target an enemy tower
                 if (bestEnemyUnit == null)
                 {
                     for (int j = 0; j < enemyTowers.Count; j++)
                     {
-                        var enemyTower = enemyTowers[j];
-                        if (enemyTower == null) continue;
-                        if (enemyTower.currentHp <= 0) continue;
+                        var et = enemyTowers[j];
+                        if (et == null || et.currentHp <= 0) continue;
 
-                        float distSqr = (enemyTower.transform.position - pos).sqrMagnitude;
+                        float distSqr = SqrDistanceToTower(et, pos);
                         if (distSqr < bestDistSqr)
                         {
                             bestDistSqr = distSqr;
                             bestEnemyUnit = null;
-                            bestEnemyTower = enemyTower;
+                            bestEnemyTower = et;
                         }
                     }
                 }
@@ -280,17 +291,20 @@ namespace Game.Match.Battle
 
                 if (bestEnemyUnit != null)
                 {
-                    var enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
-                    if (enemyRuntime != null && enemyRuntime.health > 0)
+                    var rt = bestEnemyUnit.GetComponent<UnitRuntime>();
+                    if (rt != null && rt.health > 0)
                     {
-                        enemyRuntime.health -= damage;
-                        if (enemyRuntime.health <= 0)
+                        rt.health -= damage;
+                        if (rt.health <= 0)
                         {
-                            Object.Destroy(bestEnemyUnit.gameObject);
+                            if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
+                            else _remoteUnits.Remove(bestEnemyUnit);
+                            UnitDied?.Invoke(bestEnemyUnit);
+                            Destroy(bestEnemyUnit.gameObject);
                         }
                     }
                 }
-                else if (bestEnemyTower != null)
+                else
                 {
                     bestEnemyTower.currentHp -= damage;
                     if (bestEnemyTower.currentHp <= 0)
@@ -304,7 +318,35 @@ namespace Game.Match.Battle
             }
         }
 
-        private bool HasAliveUnits(List<UnitAgent> list)
+        // --- Utilities --------------------------------------------------------
+
+        private static float SqrDistanceToAgent(UnitAgent agent, Vector3 from)
+        {
+            if (agent == null) return float.MaxValue;
+
+            var col = agent.GetComponent<Collider>();
+            if (col != null)
+            {
+                Vector3 p = col.ClosestPoint(from);
+                return (p - from).sqrMagnitude;
+            }
+            return (agent.transform.position - from).sqrMagnitude;
+        }
+
+        private static float SqrDistanceToTower(BattleTower tower, Vector3 from)
+        {
+            if (tower == null) return float.MaxValue;
+
+            var col = tower.GetComponent<Collider>();
+            if (col != null)
+            {
+                Vector3 p = col.ClosestPoint(from);
+                return (p - from).sqrMagnitude;
+            }
+            return (tower.transform.position - from).sqrMagnitude;
+        }
+
+        private static bool HasAliveUnits(List<UnitAgent> list)
         {
             for (int i = 0; i < list.Count; i++)
             {
@@ -318,7 +360,7 @@ namespace Game.Match.Battle
             return false;
         }
 
-        private bool HasAliveTowers(List<BattleTower> list)
+        private static bool HasAliveTowers(List<BattleTower> list)
         {
             for (int i = 0; i < list.Count; i++)
             {
@@ -337,10 +379,8 @@ namespace Game.Match.Battle
             int owner = tower.ownerId;
             Debug.Log($"[CombatResolver] Tower destroyed: owner={owner}, index={tower.index}");
 
-            // Destroy the GameObject; its HP is already 0.
-            Object.Destroy(tower.gameObject);
+            Destroy(tower.gameObject);
 
-            // Check if this side has any tower HP left
             var towerList = owner == 0 ? _localTowers : _remoteTowers;
             bool anyAlive = HasAliveTowers(towerList);
 
@@ -349,6 +389,31 @@ namespace Game.Match.Battle
                 // This side has no towers left -> they lose.
                 OnSideDefeated?.Invoke(owner);
             }
+        }
+
+        /// <summary>
+        /// Call this when a new battle is about to start (from CardPhase).
+        /// IMPORTANT: We intentionally DO NOT clear tower lists here.
+        /// Towers are registered per-battle via RegisterTowers, and clearing
+        /// them here after registration would break targeting in later battles.
+        /// </summary>
+        public void ResetForNewBattle()
+        {
+            // Clear unit lists so we don't keep stale UnitAgents across battles.
+            _localUnits.Clear();
+            _remoteUnits.Clear();
+
+            // Do NOT clear _localTowers / _remoteTowers here.
+            // They are maintained by RegisterTowers per battle.
+
+            // Reset timing so the Update-driven tick logic starts fresh.
+            _lastTickTime = Time.time;
+            _accumulatedUnitTime = 0f;
+            _accumulatedTowerTime = 0f;
+
+            // Ensure the resolver is active for the new battle.
+            if (!enabled)
+                enabled = true;
         }
     }
 }

@@ -9,9 +9,10 @@ namespace Game.Match.Battle
     /// <summary>
     /// Isolated controller that:
     /// - Starts a 2s "evacuate" recall window for a given ownerId.
-    /// - During evacuate, recalled units cannot attack (we bump their nextAttackTime).
+    /// - During evacuate, recalled units cannot attack (we bump their nextAttackTime) and movement is locked.
     /// - After evacuate, surviving recalled units are despawned and recorded as survivors.
-    /// - Watches alive-unit counts and raises ReturnToCardPhase when both sides are empty.
+    /// - Watches alive-unit counts and raises OnAllSidesEmpty when both sides are empty.
+    /// - Can be safely re-bound every battle to avoid stale subscriptions.
     /// </summary>
     public class BattleRecallController : MonoBehaviour
     {
@@ -19,43 +20,82 @@ namespace Game.Match.Battle
         [Tooltip("Duration of the evacuate window (seconds).")]
         public float evacuateSeconds = 2f;
 
-        [Header("Refs (wired at runtime)")]
+        [Header("Runtime-wired refs")]
         [SerializeField] private CombatResolver resolver;
         [SerializeField] private int localOwnerId = 0;
 
         // --- Events for UI / scene orchestrators ---
-        public System.Action<int> OnRecallStarted;
-        public System.Action<int> OnRecallCompleted;
+        public System.Action<int> OnRecallStarted;   // param: ownerId
+        public System.Action<int> OnRecallCompleted; // param: ownerId
         public System.Action OnAllSidesEmpty;
 
-        // Internal: track a set of units being recalled for each owner
+        // Track units being recalled so we only despawn those
         private readonly HashSet<UnitAgent> _recalling = new();
 
+        // Keep who we're currently listening to, so we can unhook on rebind
+        private CombatResolver _boundResolver;
+
+        // --------------------------------------------------------------------
+        // Lifecycle / binding
+        // --------------------------------------------------------------------
         public void Initialize(CombatResolver combatResolver, int localOwner)
         {
-            resolver = combatResolver;
             localOwnerId = localOwner;
+            Rebind(combatResolver);
+        }
 
-            if (resolver != null)
+        /// <summary>
+        /// Re-subscribe to resolver events every time a new battle starts.
+        /// Safe to call multiple times. Also clears transient recall state.
+        /// </summary>
+        public void Rebind(CombatResolver newResolver)
+        {
+            if (_boundResolver == newResolver && resolver == newResolver)
+                return;
+
+            // Unhook old
+            if (_boundResolver != null)
             {
-                resolver.UnitRegistered += HandleUnitRegistered;
-                resolver.UnitDied += HandleUnitDied;
+                _boundResolver.UnitRegistered -= HandleUnitRegistered;
+                _boundResolver.UnitDied -= HandleUnitDied;
             }
+
+            _boundResolver = newResolver;
+            resolver = newResolver;
+
+            // Hook new
+            if (_boundResolver != null)
+            {
+                _boundResolver.UnitRegistered += HandleUnitRegistered;
+                _boundResolver.UnitDied += HandleUnitDied;
+            }
+
+            // Clear any lingering per-battle state
+            _recalling.Clear();
         }
 
         private void OnDestroy()
         {
-            if (resolver != null)
+            if (_boundResolver != null)
             {
-                resolver.UnitRegistered -= HandleUnitRegistered;
-                resolver.UnitDied -= HandleUnitDied;
+                _boundResolver.UnitRegistered -= HandleUnitRegistered;
+                _boundResolver.UnitDied -= HandleUnitDied;
             }
         }
 
-        // --- Public API ---
+        // --------------------------------------------------------------------
+        // Public API
+        // --------------------------------------------------------------------
+        public bool HasAliveUnits(int ownerId) => CountAlive(ownerId) > 0;
+
         public void RequestRecall(int ownerId)
         {
             if (resolver == null) return;
+            if (!gameObject.activeInHierarchy)
+            {
+                Debug.LogWarning("[Return] Recall requested but BattleRecallController object is inactive; ignoring.");
+                return;
+            }
 
             var targets = GetAliveUnits(ownerId);
             if (targets.Count == 0) return;
@@ -64,27 +104,30 @@ namespace Game.Match.Battle
             foreach (var u in targets)
             {
                 if (u == null) continue;
+
                 _recalling.Add(u);
 
                 // Prevent attacking during evacuate (no heavy combat refactor)
                 u.nextAttackTime = Time.time + evacuateSeconds + 0.05f;
 
-                // Optionally stop movement while recalling (keeps things readable)
+                // Keep them in place while evacuating – helps readability
                 u.movementLocked = true;
             }
 
             Debug.Log($"[Return] Player {ownerId} recalled {targets.Count} units (evac={evacuateSeconds:0.0}s)");
             OnRecallStarted?.Invoke(ownerId);
+
             StartCoroutine(FinishRecallAfter(ownerId, evacuateSeconds));
         }
 
-        public bool HasAliveUnits(int ownerId) => CountAlive(ownerId) > 0;
-
-        // --- Internals ---
-        IEnumerator FinishRecallAfter(int ownerId, float delay)
+        // --------------------------------------------------------------------
+        // Internals
+        // --------------------------------------------------------------------
+        private IEnumerator FinishRecallAfter(int ownerId, float delay)
         {
             yield return new WaitForSeconds(delay);
 
+            // Survivors = those still alive AND flagged for recall
             var survivorsThisOwner = new List<UnitAgent>();
             foreach (var u in GetAliveUnits(ownerId))
             {
@@ -92,14 +135,14 @@ namespace Game.Match.Battle
                     survivorsThisOwner.Add(u);
             }
 
-            // Snapshot survivors
+            // Record survivors back to card phase (if any)
             if (survivorsThisOwner.Count > 0)
             {
                 var reg = MatchRuntimeService.Instance?.survivors;
                 reg?.RecordSurvivors(ownerId, survivorsThisOwner);
             }
 
-            // Despawn (not deaths)
+            // Despawn recalled survivors (not deaths)
             foreach (var u in survivorsThisOwner)
             {
                 _recalling.Remove(u);
@@ -108,30 +151,29 @@ namespace Game.Match.Battle
 
             OnRecallCompleted?.Invoke(ownerId);
 
-            // --- NEW: let Unity finalize destruction this frame ---
+            // Let Unity process destructions before we check emptiness
             yield return null;
 
-            // Re-check after objects are actually gone
-            TryAnnounceAllSidesEmpty();
-        }
-        void HandleUnitRegistered(UnitAgent _)
-        {
-            // If anything spawns (unlikely during battle), just check emptiness rules.
             TryAnnounceAllSidesEmpty();
         }
 
-        void HandleUnitDied(UnitAgent dead)
+        private void HandleUnitRegistered(UnitAgent _)
+        {
+            // If something spawns mid-battle (unlikely), keep emptiness rules honest
+            TryAnnounceAllSidesEmpty();
+        }
+
+        private void HandleUnitDied(UnitAgent dead)
         {
             _recalling.Remove(dead);
             TryAnnounceAllSidesEmpty();
         }
 
-        void TryAnnounceAllSidesEmpty()
+        private void TryAnnounceAllSidesEmpty()
         {
             int a = CountAlive(0);
             int b = CountAlive(1);
 
-            // Debug aid
             Debug.Log($"[Return] Alive counts after recall: A={a}, B={b}");
 
             if (a == 0 && b == 0)
@@ -140,30 +182,35 @@ namespace Game.Match.Battle
                 OnAllSidesEmpty?.Invoke();
             }
         }
-        int CountAlive(int ownerId)
+
+        private int CountAlive(int ownerId)
         {
             if (resolver == null) return 0;
             var list = (ownerId == 0) ? resolver.LocalUnits : resolver.RemoteUnits;
             int count = 0;
+
             for (int i = 0; i < list.Count; i++)
             {
                 var u = list[i];
                 if (u == null) continue;
+
                 var rt = u.GetComponent<UnitRuntime>();
                 if (rt != null && rt.health > 0) count++;
             }
             return count;
         }
 
-        List<UnitAgent> GetAliveUnits(int ownerId)
+        private List<UnitAgent> GetAliveUnits(int ownerId)
         {
             var res = new List<UnitAgent>();
             if (resolver == null) return res;
+
             var list = (ownerId == 0) ? resolver.LocalUnits : resolver.RemoteUnits;
             for (int i = 0; i < list.Count; i++)
             {
                 var u = list[i];
                 if (u == null) continue;
+
                 var rt = u.GetComponent<UnitRuntime>();
                 if (rt != null && rt.health > 0) res.Add(u);
             }

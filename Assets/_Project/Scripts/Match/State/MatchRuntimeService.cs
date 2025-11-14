@@ -19,10 +19,11 @@ namespace Game.Match.State
         public int laneIndex;      // for future multi-lane support
         public float spawnOffset;  // used when not using exactPosition
 
-        // NEW: allow card phase to dictate exact world position
+        // allow card phase to dictate exact world position
         public bool useExactPosition;
         public Vector3 exactPosition;
     }
+
     /// <summary>
     /// Full description of what each side sends into the battle stage.
     /// </summary>
@@ -101,7 +102,7 @@ namespace Game.Match.State
 
         [Header("Battle I/O (runtime)")]
         public BattleDescriptor pendingBattle;   // filled before loading BattleStage
-        public BattleResult lastBattleResult; // filled when BattleStage finishes
+        public BattleResult lastBattleResult;    // filled when BattleStage finishes
 
         private void Awake()
         {
@@ -143,6 +144,7 @@ namespace Game.Match.State
             // Note: we are not wiping decks/hands here yet.
             // We'll decide that behaviour when we hook this into the full match flow.
         }
+
         // ----- Survivor Registry -----
         [System.Serializable]
         public class SurvivorRegistry
@@ -178,8 +180,8 @@ namespace Game.Match.State
             }
 
             /// <summary>
-            /// Applies survivors to CardPhase: marks grid occupancy and re-registers placements.
-            /// HP is restored implicitly on next battle spawn (UnitRuntime.InitFrom).
+            /// Applies survivors to CardPhase: marks grid occupancy (when free) and ALWAYS re-registers placements in the registry,
+            /// so next battle includes every survivor even if the tile is currently occupied.
             /// Returns survivor counts for both sides.
             /// </summary>
             public (int a, int b) ConsumeAndApplyToCardPhase()
@@ -204,16 +206,22 @@ namespace Game.Match.State
                         continue;
                     }
 
-                    // Occupy the original tiles and register the placement
                     var size = s.card.size;
-                    if (!grid.CanPlace(size, tile))
+                    var world = grid.TileToWorld(tile, 0f);
+
+                    // Try to place back onto the grid (restoring occupancy).
+                    // If it's occupied, we still mirror into the registry so it will spawn next battle.
+                    if (grid.CanPlace(size, tile))
                     {
-                        Debug.LogWarning($"[SurvivorRegistry] Tile {tile} occupied; skipping survivor {s.card.name}.");
-                        continue;
+                        grid.Place(size, tile);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[SurvivorRegistry] Tile {tile} occupied; mirroring survivor {s.card.name} into registry.");
                     }
 
-                    grid.Place(size, tile);
-                    reg.Register(s.card, grid.TileToWorld(tile, 0f), s.ownerId);
+                    // ALWAYS reflect the survivor into the placement registry
+                    reg.Register(s.card, world, s.ownerId);
 
                     if (s.ownerId == 0) a++; else b++;
                 }

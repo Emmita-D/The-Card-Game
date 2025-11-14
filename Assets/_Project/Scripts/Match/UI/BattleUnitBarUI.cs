@@ -47,6 +47,10 @@ namespace Game.Match.UI
         private readonly Dictionary<UnitAgent, BattleUnitThumbnail> byAgent = new Dictionary<UnitAgent, BattleUnitThumbnail>(32);
         private WaitForSeconds waitPoll;
 
+        private bool _pendingInit;
+        private CombatResolver _resolver;
+        private int _localOwner;
+
         // Track current selection
         private BattleUnitThumbnail currentSelected;
 
@@ -79,16 +83,36 @@ namespace Game.Match.UI
                 TryDeselectOnOutsideClick(screenPos);
         }
 
-        public void Initialize(CombatResolver combatResolver, int localOwner)
+        public void Initialize(CombatResolver resolver, int localOwner)
         {
-            resolver = combatResolver ? combatResolver : FindObjectOfType<CombatResolver>();
-            localOwnerId = localOwner;
+            _resolver = resolver;
+            _localOwner = localOwner;
 
-            SyncNow(true);
-            StartCoroutine(PollLoop());
-            Debug.Log("[UnitBar] Initialized.");
+            if (!gameObject.activeInHierarchy)
+            {
+                _pendingInit = true;
+                return;              // defer until OnEnable
+            }
+
+            StartCoroutine(CoBootstrap());
         }
+        private IEnumerator CoBootstrap()
+        {
+            // Wait one frame so Battle scene/UI objects finish activating and
+            // CombatResolver has registered any units that spawned on Start().
+            yield return null;
 
+            // Your class already has SyncNow(bool) (see your logs). Force a refresh.
+            SyncNow(true);
+        }
+        private void OnEnable()
+        {
+            if (_pendingInit && gameObject.activeInHierarchy && _resolver != null)
+            {
+                _pendingInit = false;
+                StartCoroutine(CoBootstrap());
+            }
+        }
         public void BootstrapFrom(IReadOnlyList<UnitAgent> locals)
         {
             int added = 0;

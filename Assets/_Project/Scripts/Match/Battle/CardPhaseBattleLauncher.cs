@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using Game.Match.State;      // MatchRuntimeService, BattleDescriptor, BattleUnitSeed
 using Game.Match.Cards;      // CardSO
@@ -38,6 +38,13 @@ namespace Game.Match.Battle
                 return;
             }
 
+            // --- NEW: if a persistent CombatResolver exists, reset it so no stale state carries over.
+            if (CombatResolver.Instance != null)
+            {
+                Debug.Log("[CardPhaseBattleLauncher] Found existing CombatResolver → ResetForNewBattle()");
+                CombatResolver.Instance.ResetForNewBattle();
+            }
+
             var desc = new BattleDescriptor();
 
             // REAL local units from card phase placements
@@ -55,7 +62,7 @@ namespace Game.Match.Battle
                 Debug.LogWarning("[CardPhaseBattleLauncher] No BattlePlacementRegistry in scene; local side will be empty.");
             }
 
-            // REMOTE side � keep debug list for now
+            // REMOTE side – keep debug list for now
             if (debugRemoteUnits != null)
             {
                 for (int i = 0; i < debugRemoteUnits.Length; i++)
@@ -81,10 +88,22 @@ namespace Game.Match.Battle
             Debug.Log($"[CardPhaseBattleLauncher] Starting battle: " +
                       $"{desc.localUnits.Count} local (real) vs {desc.remoteUnits.Count} remote (debug).");
 
-            // If you want, you can clear the registry so it doesn't accumulate:
-            reg?.Clear();
-
-            SceneManager.LoadSceneAsync(battleSceneName, LoadSceneMode.Additive);
+            // --- CHANGED: clear the registry AFTER the battle scene has finished loading.
+            var op = SceneManager.LoadSceneAsync(battleSceneName, LoadSceneMode.Additive);
+            if (op != null)
+            {
+                op.completed += _ =>
+                {
+                    // Safe to clear now; battle scene has read MatchRuntimeService.pendingBattle.
+                    reg?.Clear();
+                    Debug.Log("[CardPhaseBattleLauncher] Battle scene loaded → registry cleared.");
+                };
+            }
+            else
+            {
+                // Fallback (shouldn’t happen, but keep old behavior if the async op is null)
+                reg?.Clear();
+            }
         }
     }
 }

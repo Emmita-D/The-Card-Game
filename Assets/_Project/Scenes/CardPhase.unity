@@ -1251,7 +1251,7 @@ MonoBehaviour:
   turn: {fileID: 1664319204}
   label: {fileID: 2143756244}
   durationSeconds: 30
-  autoStart: 1
+  autoStart: 0
   useUnscaledTime: 0
 --- !u!1 &467874768
 GameObject:
@@ -1434,8 +1434,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Mana.ManaPool
   cfg: {fileID: 0}
-  startSlots: 10
-  startCurrent: 10
+  startSlots: 0
+  startCurrent: 0
 --- !u!1 &878288169
 GameObject:
   m_ObjectHideFlags: 0
@@ -1519,9 +1519,9 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1824448878}
-        m_TargetAssemblyTypeName: Game.Match.Battle.CardPhaseBattleLauncher, Assembly-CSharp
-        m_MethodName: StartBattle
+      - m_Target: {fileID: 1664319204}
+        m_TargetAssemblyTypeName: Game.Match.State.TurnController, Assembly-CSharp
+        m_MethodName: EndTurn
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -2600,6 +2600,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.State.TurnController
   mana: {fileID: 670206535}
   handView: {fileID: 19861829}
+  timer: {fileID: 412263326}
+  battleLauncher: {fileID: 1824448878}
   autoStart: 1
   deckList:
   - {fileID: 11400000, guid: b37695a9b66c185489ced2a01037d2b3, type: 2}
@@ -2621,10 +2623,9 @@ MonoBehaviour:
   shuffleSeed: 12345
   bumpMaxOnStartTurn: 1
   refillOnStartTurn: 1
-  drawOnStartTurn: 0
-  drawOnEndTurn: 1
-  bumpOnFirstTurn: 0
-  timer: {fileID: 412263326}
+  drawOnStartTurn: 1
+  drawOnEndTurn: 0
+  bumpOnFirstTurn: 1
   slotsCap: 10
 --- !u!4 &1664319205
 Transform:

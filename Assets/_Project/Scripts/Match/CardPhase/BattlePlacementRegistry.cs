@@ -8,9 +8,8 @@ namespace Game.Match.CardPhase
     /// <summary>
     /// Card-phase registry of units that have been placed on the grid.
     /// Stores card + world position + ownerId, and can build BattleUnitSeed lists.
+    /// De-duplicates entries to safely mirror survivors across turns.
     /// </summary>
-    /// 
-
     public class BattlePlacementRegistry : MonoBehaviour
     {
         public static BattlePlacementRegistry Instance { get; private set; }
@@ -36,14 +35,15 @@ namespace Game.Match.CardPhase
         }
 
         /// <summary>
-        /// Register a placed unit at the given world position.
+        /// Optional board-center hint used elsewhere (kept from your original file).
         /// </summary>
-        /// 
         private float? _localBoardCenterX;
+
         public void SetLocalBoardCenterX(float centerX)
         {
             _localBoardCenterX = centerX;
         }
+
         public bool TryGetLocalBoardCenterX(out float centerX)
         {
             if (_localBoardCenterX.HasValue) { centerX = _localBoardCenterX.Value; return true; }
@@ -51,10 +51,40 @@ namespace Game.Match.CardPhase
             return false;
         }
 
+        // -----------------------------
+        // Registration + de-dup support
+        // -----------------------------
 
+        /// <summary>
+        /// True if an entry with the same (card ref, ownerId) is already present
+        /// at approximately the same world position (<= posEps).
+        /// </summary>
+        public bool Contains(CardSO card, Vector3 worldPos, int ownerId, float posEps = 0.01f)
+        {
+            if (card == null) return false;
+            float eps2 = posEps * posEps;
+
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                var e = _entries[i];
+                if (!ReferenceEquals(e.card, card)) continue;
+                if (e.ownerId != ownerId) continue;
+                if ((e.worldPos - worldPos).sqrMagnitude > eps2) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Register a placed/survived unit. De-duplicates by (card ref, ownerId, ~worldPos).
+        /// </summary>
         public void Register(CardSO card, Vector3 worldPos, int ownerId)
         {
             if (card == null) return;
+
+            // De-dup to avoid double entries when survivors are mirrored back
+            if (Contains(card, worldPos, ownerId))
+                return;
 
             _entries.Add(new Entry
             {
@@ -67,11 +97,11 @@ namespace Game.Match.CardPhase
         }
 
         /// <summary>
-        /// Build unit seeds for the given owner (0/1), using exact positions.
+        /// Build unit seeds for the given owner (0/1), using exact world positions.
         /// </summary>
         public List<BattleUnitSeed> BuildSeedsForOwner(int ownerId)
         {
-            var list = new List<BattleUnitSeed>();
+            var list = new List<BattleUnitSeed>(_entries.Count);
 
             for (int i = 0; i < _entries.Count; i++)
             {
@@ -96,6 +126,7 @@ namespace Game.Match.CardPhase
 
         /// <summary>
         /// Clear all entries (call after starting a battle if desired).
+        /// Survivors will be mirrored back in on return to CardPhase.
         /// </summary>
         public void Clear()
         {
