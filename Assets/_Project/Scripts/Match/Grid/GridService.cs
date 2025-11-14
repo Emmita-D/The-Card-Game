@@ -90,6 +90,15 @@ namespace Game.Match.Grid
                     if (occ[x, y]) yield return new Vector2Int(x, y);
         }
 
+        public void ClearAll()
+        {
+            Init();
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    occ[x, y] = false;
+        }
+
+
         // ---- Back-compat wrappers for your existing SizeClass calls ----
         // Fixed orientation: I=1x1, II=1x2 (vertical), III=2x2
         IEnumerable<Vector2Int> Footprint(SizeClass s, Vector2Int origin) =>

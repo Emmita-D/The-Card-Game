@@ -165,6 +165,16 @@ namespace Game.Match.Battle
             // Fresh combat state for the new round but KEEP tower HP as-is
             ReinitCombatResolver();
 
+            // Bind recall controller to this battle's resolver so it can watch deaths / emptiness
+            if (recallController != null && combatResolver != null)
+            {
+                if (!recallController.gameObject.activeSelf)
+                    recallController.gameObject.SetActive(true);
+
+                // Local player is ownerId=0 in your current setup
+                recallController.Initialize(combatResolver, 0);
+            }
+
             // Spawn units for this particular round
             SpawnUnits(desc);
 

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using Game.Core.Config;
 using Game.Match.Cards;
@@ -180,12 +180,13 @@ namespace Game.Match.State
             }
 
             /// <summary>
-            /// Applies survivors to CardPhase: marks grid occupancy (when free) and ALWAYS re-registers placements in the registry,
-            /// so next battle includes every survivor even if the tile is currently occupied.
+            /// Applies survivors to CardPhase: marks grid tiles (when free) and ALWAYS re-registers placements
+            /// in the BattlePlacementRegistry, so next battle includes every survivor.
             /// Returns survivor counts for both sides.
             /// </summary>
             public (int a, int b) ConsumeAndApplyToCardPhase()
             {
+                // Find the CardPhase grid + placement registry
                 var grid = Object.FindObjectOfType<Game.Match.Grid.GridService>(includeInactive: true);
                 var reg = Game.Match.CardPhase.BattlePlacementRegistry.Instance;
 
@@ -198,30 +199,90 @@ namespace Game.Match.State
                     return (0, 0);
                 }
 
+                // 1) Remove ALL existing CardPhase board units under the grid
+                //    (this wipes both survivors and dead ghosts; we will rebuild survivors only).
+                var existingUnits = grid.GetComponentsInChildren<Game.Match.Units.UnitRuntime>(true);
+                for (int i = 0; i < existingUnits.Length; i++)
+                {
+                    var u = existingUnits[i];
+                    if (u != null)
+                        Object.Destroy(u.gameObject);
+                }
+
+                // 2) Clear grid occupancy so dead units stop blocking tiles
+                grid.ClearAll();
+
+                // 3) Recreate grid + board units for survivors only
                 foreach (var s in _pending)
                 {
+                    if (s.card == null) continue;
+
+                    // Convert the saved CardPhase world origin back to a tile
                     if (!grid.WorldToTile(s.originWorld, out var tile))
                     {
-                        Debug.LogWarning($"[SurvivorRegistry] Origin world {s.originWorld} not on grid; skipping.");
+                        Debug.LogWarning($"[SurvivorRegistry] Origin world {s.originWorld} not on grid; skipping survivor {s.card.name}.");
                         continue;
                     }
 
-                    var size = s.card.size;
-                    var world = grid.TileToWorld(tile, 0f);
+                    // Footprint size from the card data (same logic used by DraggableCard.GetFootprintInts)
+                    int w = Mathf.Clamp(s.card.sizeW, 1, 4);
+                    int h = Mathf.Clamp(s.card.sizeH, 1, 4);
 
-                    // Try to place back onto the grid (restoring occupancy).
-                    // If it's occupied, we still mirror into the registry so it will spawn next battle.
-                    if (grid.CanPlace(size, tile))
+                    // Reserve tiles if possible
+                    if (grid.CanPlaceRect(tile, w, h))
                     {
-                        grid.Place(size, tile);
+                        grid.PlaceRect(tile, w, h);
                     }
                     else
                     {
-                        Debug.LogWarning($"[SurvivorRegistry] Tile {tile} occupied; mirroring survivor {s.card.name} into registry.");
+                        Debug.LogWarning(
+                            $"[SurvivorRegistry] Tile {tile} can't place survivor {s.card.name} footprint {w}x{h} " +
+                            "(occupied or out of bounds). Registering in placement registry anyway.");
                     }
 
-                    // ALWAYS reflect the survivor into the placement registry
-                    reg.Register(s.card, world, s.ownerId);
+                    // Compute snapped world position at the tile center
+                    Vector3 snappedWorld = grid.TileToWorld(tile, 0f);
+
+                    // Register in placement registry so next BattlePhase includes this survivor
+                    reg.Register(s.card, snappedWorld, s.ownerId);
+
+                    // Rebuild the CardPhase board unit visual, like DraggableCard does
+                    var prefab = s.card.unitPrefab;
+                    if (prefab != null)
+                    {
+                        // Same centering as DraggableCard: center of the whole footprint
+                        Vector3 center =
+                            grid.TileCenterToWorld(tile, 0f) +
+                            new Vector3((w - 1) * 0.5f * grid.TileSize, 0f,
+                                        (h - 1) * 0.5f * grid.TileSize);
+
+                        var parent = grid.transform;
+                        var go = Object.Instantiate(prefab, center, Quaternion.identity, parent);
+
+                        // Snap vertically onto grid plane
+                        float groundY = grid.transform.position.y;
+                        var col = go.GetComponentInChildren<Collider>();
+                        var rendUnit = (col == null) ? go.GetComponentInChildren<Renderer>() : null;
+                        float halfH = 0.5f;
+                        if (col != null) halfH = col.bounds.extents.y;
+                        else if (rendUnit != null) halfH = rendUnit.bounds.extents.y;
+
+                        var p = go.transform.position;
+                        p.y = groundY + halfH;
+                        go.transform.position = p;
+
+                        // Initialize unit runtime from the card
+                        var ur = go.GetComponent<Game.Match.Units.UnitRuntime>();
+                        if (ur != null) ur.InitFrom(s.card);
+
+                        // Optional but harmless: attach graveyard relay for future kills in CardPhase
+                        var gy = go.GetComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+                        if (gy == null) gy = go.AddComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+                        gy.source = s.card;
+                        gy.ownerId = s.ownerId;
+
+                        go.name = s.card.cardName + $"_{tile.x}_{tile.y}";
+                    }
 
                     if (s.ownerId == 0) a++; else b++;
                 }

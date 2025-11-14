@@ -24,6 +24,9 @@ namespace Game.Match.Battle
         [SerializeField] private CombatResolver resolver;
         [SerializeField] private int localOwnerId = 0;
 
+        [Tooltip("Delay before auto-returning to CardPhase when the battlefield is completely empty.")]
+        public float emptyFieldReturnDelaySeconds = 2f;
+
         // --- Events for UI / scene orchestrators ---
         public System.Action<int> OnRecallStarted;   // param: ownerId
         public System.Action<int> OnRecallCompleted; // param: ownerId
@@ -34,6 +37,9 @@ namespace Game.Match.Battle
 
         // Keep who we're currently listening to, so we can unhook on rebind
         private CombatResolver _boundResolver;
+
+        // Avoid starting multiple empty-field countdowns
+        private bool _emptyCountdownRunning;
 
         // --------------------------------------------------------------------
         // Lifecycle / binding
@@ -174,13 +180,41 @@ namespace Game.Match.Battle
             int a = CountAlive(0);
             int b = CountAlive(1);
 
-            Debug.Log($"[Return] Alive counts after recall: A={a}, B={b}");
+            Debug.Log($"[Return] Alive counts after update: A={a}, B={b}");
 
             if (a == 0 && b == 0)
             {
-                Debug.Log("[Return] All sides empty → firing OnAllSidesEmpty");
+                // Schedule a delayed return if not already counting down
+                if (!_emptyCountdownRunning && gameObject.activeInHierarchy)
+                {
+                    StartCoroutine(AnnounceAllSidesEmptyAfterDelay());
+                }
+            }
+            else
+            {
+                // If someone is alive again, any pending countdown will safely bail out
+                _emptyCountdownRunning = false;
+            }
+        }
+
+        private IEnumerator AnnounceAllSidesEmptyAfterDelay()
+        {
+            _emptyCountdownRunning = true;
+
+            // Wait the configured delay before auto-return
+            yield return new WaitForSeconds(emptyFieldReturnDelaySeconds);
+
+            // Re-check: maybe something spawned in the meantime (unlikely, but safe)
+            int a = CountAlive(0);
+            int b = CountAlive(1);
+
+            if (a == 0 && b == 0)
+            {
+                Debug.Log("[Return] All sides empty → firing OnAllSidesEmpty after delay");
                 OnAllSidesEmpty?.Invoke();
             }
+
+            _emptyCountdownRunning = false;
         }
 
         private int CountAlive(int ownerId)
