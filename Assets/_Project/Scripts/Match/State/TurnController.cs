@@ -5,6 +5,8 @@ using Game.Match.Cards;
 using Game.Match.Mana;        // ManaPool (Slots/Current/SetSlots/SetCurrent)
 using Game.Match.Graveyard;
 using Game.Match.Battle;     // CardPhaseBattleLauncher
+using Game.Match.Log;
+
 
 namespace Game.Match.State
 {
@@ -221,7 +223,7 @@ namespace Game.Match.State
         /// If the deck is empty when we need to draw, signals deck depletion
         /// (player loses by decking out) via OnDeckDepleted.
         /// </summary>
-        private void Draw(int count)
+        void Draw(int count)
         {
             int originalCount = count;
             int beforeHand = hand.Count;
@@ -231,7 +233,7 @@ namespace Game.Match.State
             {
                 if (deck.Count == 0)
                 {
-                    Debug.LogWarning("[Turn] Deck empty while trying to draw → local player loses. (Hook UI/match end on OnDeckDepleted.)");
+                    Debug.LogWarning("[Turn] Deck empty while trying to draw → local player loses. (Hook OnDeckDepleted.)");
                     OnDeckDepleted?.Invoke();
                     break;
                 }
@@ -241,6 +243,14 @@ namespace Game.Match.State
 
                 var ci = new CardInstance(so, ownerId);
                 hand.Add(ci);
+
+                // 🔹 Log this draw with sprite + CardSO
+                var logger = ActionLogService.Instance;
+                if (logger != null)
+                {
+                    string name = !string.IsNullOrEmpty(so.cardName) ? so.cardName : so.name;
+                    logger.CardLocal($"Drew {name}.", so.artSprite, so);
+                }
             }
 
             int drawn = hand.Count - beforeHand;

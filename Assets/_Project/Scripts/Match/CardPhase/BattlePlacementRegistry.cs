@@ -1,7 +1,7 @@
-using System.Collections.Generic;
-using UnityEngine;
 using Game.Match.Cards;
 using Game.Match.State; // BattleUnitSeed
+using System.Collections.Generic;
+using UnityEngine;
 
 namespace Game.Match.CardPhase
 {
@@ -14,6 +14,7 @@ namespace Game.Match.CardPhase
     {
         public static BattlePlacementRegistry Instance { get; private set; }
 
+
         [System.Serializable]
         public struct Entry
         {
@@ -23,6 +24,7 @@ namespace Game.Match.CardPhase
         }
 
         private readonly List<Entry> _entries = new();
+
 
         private void Awake()
         {
