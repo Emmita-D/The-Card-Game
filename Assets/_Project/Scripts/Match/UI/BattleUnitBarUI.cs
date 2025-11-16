@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using Game.Match.Battle;
+using Game.Match.Log;   // NEW: for ActionLogCardPreview
 
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem; // Mouse.current, Touchscreen.current
@@ -23,7 +24,12 @@ namespace Game.Match.UI
         [SerializeField] private RectTransform content;                 // Viewport/Content
         [SerializeField] private ScrollRect scrollRect;                 // parent ScrollRect
         [SerializeField] private BattleUnitThumbnail thumbnailPrefab;   // prefab
-        [SerializeField] private CardPreviewPanel previewPanel;         // left preview
+
+        // OLD:
+        // [SerializeField] private CardPreviewPanel previewPanel;       // left preview
+        // NEW: use the shared ActionLogCardPreview instead
+        [SerializeField] private ActionLogCardPreview preview;          // shared card preview
+
         [SerializeField] private Sprite fallbackSprite;                 // placeholder
 
         [Header("Behaviour")]
@@ -96,6 +102,7 @@ namespace Game.Match.UI
 
             StartCoroutine(CoBootstrap());
         }
+
         private IEnumerator CoBootstrap()
         {
             // Wait one frame so Battle scene/UI objects finish activating and
@@ -105,6 +112,7 @@ namespace Game.Match.UI
             // Your class already has SyncNow(bool) (see your logs). Force a refresh.
             SyncNow(true);
         }
+
         private void OnEnable()
         {
             if (_pendingInit && gameObject.activeInHierarchy && _resolver != null)
@@ -113,6 +121,7 @@ namespace Game.Match.UI
                 StartCoroutine(CoBootstrap());
             }
         }
+
         public void BootstrapFrom(IReadOnlyList<UnitAgent> locals)
         {
             int added = 0;
@@ -212,8 +221,13 @@ namespace Game.Match.UI
                 v.transform.SetParent(content, false);
                 pool.Enqueue(v);
                 byAgent.Remove(ua);
-                if (previewPanel && previewPanel.CurrentAgent == ua) previewPanel.Clear();
-                if (currentSelected == v) currentSelected = null;
+
+                // If this was the selected unit, clear selection + hide preview
+                if (currentSelected == v)
+                {
+                    currentSelected = null;
+                    if (preview != null) preview.Hide();
+                }
 
                 Debug.Log($"[UnitBar] Removed {ua.sourceCard?.cardName ?? "Unit"}.");
                 Canvas.ForceUpdateCanvases();
@@ -226,17 +240,24 @@ namespace Game.Match.UI
         {
             currentSelected = v;
             foreach (var kv in byAgent) kv.Value.SetSelected(kv.Value == v);
-            if (previewPanel) previewPanel.Show(v.BoundAgent, v.FullSprite);
+
+            // Use the shared ActionLogCardPreview instead of CardPreviewPanel
+            if (preview != null && v.BoundAgent != null && v.BoundAgent.sourceCard != null)
+            {
+                preview.ShowCard(v.BoundAgent.sourceCard);
+            }
         }
 
         private void ClearSelection()
         {
-            if (currentSelected == null && (previewPanel == null || previewPanel.CurrentAgent == null))
+            if (currentSelected == null && preview == null)
                 return;
 
             currentSelected = null;
             foreach (var kv in byAgent) kv.Value.SetSelected(false);
-            if (previewPanel) previewPanel.Clear();
+
+            if (preview != null)
+                preview.Hide();
         }
 
         // Called by the UnitLifeRelay when the unit object gets destroyed

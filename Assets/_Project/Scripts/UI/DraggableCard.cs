@@ -8,6 +8,7 @@ using Game.Core;
 using Game.Match.State;
 using Game.Match.Graveyard;
 using Game.Match.CardPhase;   // 👈 needed for BattlePlacementRegistry
+using Game.Match.Log;
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -224,7 +225,20 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             if (ur != null) ur.InitFrom(so);
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
         }
-
+        // Log: unit placed on the CardPhase board (local-only)
+        if (so != null && so.type == CardType.Unit)
+        {
+            var logger = ActionLogService.Instance;
+            if (logger != null)
+            {
+                string cardName = !string.IsNullOrEmpty(so.cardName) ? so.cardName : so.name;
+                logger.CardLocal(
+                    $"Placed {cardName} on the board.",
+                    so.artSprite, // icon in the log
+                    so            // CardSO so the row is clickable
+                );
+            }
+        }
         // Reset any lingering preview flags (defensive)
         PreviewActive = false;
         PreviewIsUnit = false;

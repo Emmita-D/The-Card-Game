@@ -6,31 +6,40 @@ using Game.Match.Log;
 namespace Game.Match.Graveyard
 {
     /// <summary>
-    /// Attach to spawned unit GOs. When the unit GameObject is destroyed
-    /// *because it actually died*, the source CardSO is added to the correct
-    /// graveyard and logged to the BattlePhase action log.
-    /// If your kill flow disables first (no Destroy), call NotifyNow() manually.
+    /// Attach to spawned unit GameObjects.
+    /// When the unit actually dies and is destroyed, its source CardSO is:
+    /// - sent to the correct graveyard
+    /// - logged to the BattlePhase action log with icon + CardSO, so the log row is clickable.
+    ///
+    /// IMPORTANT:
+    /// - If the unit is still alive (health > 0), we treat the destroy as a cleanup/recall and skip logging.
     /// </summary>
     public class GraveyardOnDestroy : MonoBehaviour
     {
         [Tooltip("Original CardSO that created this unit.")]
         public CardSO source;
 
-        [Tooltip("Owner/player id of the card that spawned this unit.")]
+        [Tooltip("Owner/player id of the card that spawned this unit. 0 = local player, 1 = opponent.")]
         public int ownerId = 0;
 
         private bool _sent;
 
+        /// <summary>
+        /// Manually trigger graveyard + log (for custom kill flows).
+        /// Will only record if the unit is actually dead or has no UnitRuntime.
+        /// </summary>
         public void NotifyNow()
         {
             if (_sent) return;
 
+            // No source card? Nothing to send/log.
             if (source == null)
             {
                 _sent = true;
                 return;
             }
 
+            // If we have a UnitRuntime and it's still alive, this is a recall/cleanup, not a death.
             var runtime = GetComponent<UnitRuntime>();
             if (runtime != null && runtime.health > 0)
             {
@@ -38,7 +47,8 @@ namespace Game.Match.Graveyard
                 return;
             }
 
-            var gy = GraveyardService.TryGet();
+            // Send to graveyard
+            var gy = GraveyardService.Instance;
             if (gy == null)
             {
                 _sent = true;
@@ -47,7 +57,7 @@ namespace Game.Match.Graveyard
 
             gy.Add(ownerId, source);
 
-            // Log this death into the BattlePhase log (for both sides)
+            // Log this death into the BattlePhase log with icon + CardSO
             var log = ActionLogService.Instance;
             if (log != null)
             {
@@ -55,9 +65,23 @@ namespace Game.Match.Graveyard
                 string ownerLabel = ownerId == 0 ? "Player" : "Opponent";
 
                 if (ownerId == 0)
-                    log.BattleLocal($"{ownerLabel}'s {cardName} was destroyed.");
+                {
+                    // Local side death
+                    log.BattleLocal(
+                        $"{ownerLabel}'s {cardName} was destroyed.",
+                        source.artSprite,   // icon
+                        source              // CardSO → makes the row clickable
+                    );
+                }
                 else
-                    log.BattleRemote($"{ownerLabel}'s {cardName} was destroyed.");
+                {
+                    // Remote/enemy side death
+                    log.BattleRemote(
+                        $"{ownerLabel}'s {cardName} was destroyed.",
+                        source.artSprite,   // icon
+                        source              // CardSO → makes the row clickable
+                    );
+                }
             }
 
             _sent = true;
@@ -65,6 +89,7 @@ namespace Game.Match.Graveyard
 
         private void OnDestroy()
         {
+            // Runs when the unit GO is destroyed; if it's truly dead, this will handle graveyard + log.
             NotifyNow();
         }
     }
