@@ -154,16 +154,22 @@ namespace Game.Match.State
             {
                 public int ownerId;
                 public Cards.CardSO card;
-                public Vector3 originWorld; // CardPhase snapped world position
+                public Vector3 originWorld; // CardPhase center-of-footprint position
             }
 
             private readonly List<Survivor> _pending = new();
 
-            public void RecordSurvivors(int ownerId, System.Collections.Generic.IEnumerable<Game.Match.Battle.UnitAgent> agents)
+            /// <summary>
+            /// Record all surviving units from a battle.
+            /// </summary>
+            public void RecordSurvivors(
+                int ownerId,
+                System.Collections.Generic.IEnumerable<Game.Match.Battle.UnitAgent> agents)
             {
                 foreach (var a in agents)
                 {
                     if (a == null) continue;
+
                     var rt = a.GetComponent<Game.Match.Units.UnitRuntime>();
                     if (rt == null || rt.health <= 0) continue; // dead don't return
 
@@ -174,7 +180,7 @@ namespace Game.Match.State
                     {
                         ownerId = ownerId,
                         card = stamp.sourceCard,
-                        originWorld = stamp.cardPhaseWorld
+                        originWorld = stamp.cardPhaseWorld   // center-of-footprint from CardPhase
                     });
                 }
             }
@@ -217,16 +223,21 @@ namespace Game.Match.State
                 {
                     if (s.card == null) continue;
 
-                    // Convert the saved CardPhase world origin back to a tile
-                    if (!grid.WorldToTile(s.originWorld, out var tile))
-                    {
-                        Debug.LogWarning($"[SurvivorRegistry] Origin world {s.originWorld} not on grid; skipping survivor {s.card.name}.");
-                        continue;
-                    }
-
                     // Footprint size from the card data (same logic used by DraggableCard.GetFootprintInts)
                     int w = Mathf.Clamp(s.card.sizeW, 1, 4);
                     int h = Mathf.Clamp(s.card.sizeH, 1, 4);
+
+                    // Derive the origin tile from the stored CardPhase world center.
+                    // DraggableCard recorded originWorld as the CENTER of the whole footprint, so for tileSize ts:
+                    //   s.originWorld.x / ts = origin.x + w/2
+                    //   s.originWorld.z / ts = origin.y + h/2
+                    // => origin = (center/ts - (w,h)/2)
+                    float ts = grid.TileSize;
+                    float fx = s.originWorld.x / ts;
+                    float fz = s.originWorld.z / ts;
+                    int ox = Mathf.RoundToInt(fx - w * 0.5f);
+                    int oy = Mathf.RoundToInt(fz - h * 0.5f);
+                    var tile = new Vector2Int(ox, oy);
 
                     // Reserve tiles if possible
                     if (grid.CanPlaceRect(tile, w, h))
@@ -240,22 +251,19 @@ namespace Game.Match.State
                             "(occupied or out of bounds). Registering in placement registry anyway.");
                     }
 
-                    // Compute snapped world position at the tile center
-                    Vector3 snappedWorld = grid.TileToWorld(tile, 0f);
+                    // Same centering as DraggableCard: center of the whole footprint
+                    Vector3 center =
+                        grid.TileCenterToWorld(tile, 0f) +
+                        new Vector3((w - 1) * 0.5f * ts, 0f,
+                                    (h - 1) * 0.5f * ts);
 
                     // Register in placement registry so next BattlePhase includes this survivor
-                    reg.Register(s.card, snappedWorld, s.ownerId);
+                    reg.Register(s.card, center, s.ownerId);
 
                     // Rebuild the CardPhase board unit visual, like DraggableCard does
                     var prefab = s.card.unitPrefab;
                     if (prefab != null)
                     {
-                        // Same centering as DraggableCard: center of the whole footprint
-                        Vector3 center =
-                            grid.TileCenterToWorld(tile, 0f) +
-                            new Vector3((w - 1) * 0.5f * grid.TileSize, 0f,
-                                        (h - 1) * 0.5f * grid.TileSize);
-
                         var parent = grid.transform;
                         var go = Object.Instantiate(prefab, center, Quaternion.identity, parent);
 
@@ -280,18 +288,16 @@ namespace Game.Match.State
                         if (gy == null) gy = go.AddComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
                         gy.source = s.card;
                         gy.ownerId = s.ownerId;
-
-                        go.name = s.card.cardName + $"_{tile.x}_{tile.y}";
                     }
 
-                    if (s.ownerId == 0) a++; else b++;
+                    if (s.ownerId == 0) a++;
+                    else b++;
                 }
 
                 _pending.Clear();
                 return (a, b);
             }
         }
-
         // In MatchRuntimeService : MonoBehaviour (field + init)
         public SurvivorRegistry survivors = new SurvivorRegistry();
     }

@@ -142,12 +142,44 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         if (!isUnit)
         {
             var cam = CameraFor(e);
-            if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position), out var _, 1000f,
+            if (cam != null && Physics.Raycast(cam.ScreenPointToRay(e.position),
+                                               out var _, 1000f,
                                                (gridMask.value == 0) ? ~0 : gridMask.value))
             {
+                // LOG: spells / traps played on the CardPhase board (local-only)
+                if (so != null)
+                {
+                    var logger = ActionLogService.Instance;
+                    if (logger != null)
+                    {
+                        string cardName = !string.IsNullOrEmpty(so.cardName) ? so.cardName : so.name;
+
+                        string msg;
+                        switch (so.type)
+                        {
+                            case CardType.Spell:
+                                msg = $"Cast {cardName}.";
+                                break;
+                            case CardType.Trap:
+                                msg = $"Set {cardName} as a trap.";
+                                break;
+                            default:
+                                msg = $"Played {cardName}.";
+                                break;
+                        }
+
+                        logger.CardLocal(
+                            msg,
+                            so.artSprite, // icon in the log
+                            so            // CardSO so the row is clickable
+                        );
+                    }
+                }
+
                 // Send spent card to the owner’s realm graveyard
                 if (instance != null && instance.data != null)
                     GraveyardService.Instance.Add(instance.ownerId, instance.data);
+
                 ConsumeAndDestroy();
                 return;
             }

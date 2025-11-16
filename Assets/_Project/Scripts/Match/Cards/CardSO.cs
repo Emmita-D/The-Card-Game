@@ -29,7 +29,14 @@ namespace Game.Match.Cards
         public float rangeMeters = 0f;
 
         [Header("Movement (if Unit)")]
-        public MovementType movement = MovementType.Ground;   // <— NEW
+        public MovementType movement = MovementType.Ground;
+
+        [Header("Aggro / Targeting (if Unit)")]
+        [Tooltip("How far (in multiples of attack range) this unit will look for targets to chase.")]
+        [Min(0f)] public float chaseRangeMultiplier = 3f;
+
+        [Tooltip("Dot threshold for what counts as 'in front'. 1 = dead ahead, 0 = full 180° front arc.")]
+        [Range(-1f, 1f)] public float frontArcDotThreshold = 0.2f;
 
         [Header("Visuals & Prefab")]
         public Sprite artSprite;

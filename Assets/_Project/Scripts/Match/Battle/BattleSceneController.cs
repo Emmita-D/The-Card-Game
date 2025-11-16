@@ -129,6 +129,15 @@ namespace Game.Match.Battle
 
             // Clear the one-shot static descriptor; future rounds will be triggered directly
             pendingDescriptor = null;
+            // Edge case: if no units were spawned on either side, treat this as an
+            // empty battle and reuse the existing empty-field return flow.
+            if (combatResolver != null && recallController != null)
+            {
+                if (combatResolver.LocalUnits.Count == 0 && combatResolver.RemoteUnits.Count == 0)
+                {
+                    recallController.CheckEmptyFieldNow();
+                }
+            }
         }
 
         /// <summary>
@@ -177,6 +186,17 @@ namespace Game.Match.Battle
 
             // Spawn units for this particular round
             SpawnUnits(desc);
+
+            // NEW: edge case – empty battle (no units spawned on either side)
+            if (recallController != null)
+            {
+                // Only treat it as "empty battle" if both sides truly have no alive units
+                if (!recallController.HasAliveUnits(0) && !recallController.HasAliveUnits(1))
+                {
+                    // Reuse the same delayed empty-field logic used when everyone dies/recalls
+                    recallController.CheckEmptyFieldNow();
+                }
+            }
 
             Debug.Log($"[BattleSceneController] BeginBattleRound → local={desc.localUnits.Count}, remote={desc.remoteUnits.Count}");
         }

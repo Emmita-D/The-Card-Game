@@ -94,6 +94,11 @@ namespace Game.Match.Battle
         // --------------------------------------------------------------------
         public bool HasAliveUnits(int ownerId) => CountAlive(ownerId) > 0;
 
+        public void CheckEmptyFieldNow()
+        {
+            TryAnnounceAllSidesEmpty();
+        }
+
         public void RequestRecall(int ownerId)
         {
             if (resolver == null) return;

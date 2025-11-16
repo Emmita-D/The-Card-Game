@@ -33,6 +33,8 @@ MonoBehaviour:
   attackMode: 0
   rangeMeters: 1
   movement: 0
+  chaseRangeMultiplier: 5
+  frontArcDotThreshold: 0.2
   artSprite: {fileID: 21300000, guid: d8ec41880a070234b8529edd6d471d39, type: 3}
   unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
   isLegend: 1
