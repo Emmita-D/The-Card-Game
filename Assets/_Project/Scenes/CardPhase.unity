@@ -1940,8 +1940,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Mana.ManaPool
   cfg: {fileID: 0}
-  startSlots: 0
-  startCurrent: 0
+  startSlots: 10
+  startCurrent: 10
 --- !u!1 &874025080
 GameObject:
   m_ObjectHideFlags: 0
@@ -4699,7 +4699,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Battle.CardPhaseBattleLauncher
   battleSceneName: BattleStage
-  debugRemoteUnits: []
+  debugRemoteUnits:
+  - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
 --- !u!4 &1824448879
 Transform:
   m_ObjectHideFlags: 0

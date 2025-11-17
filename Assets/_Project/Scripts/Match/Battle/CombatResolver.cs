@@ -141,6 +141,10 @@ namespace Game.Match.Battle
                     var enemyRt = enemy.GetComponent<UnitRuntime>();
                     if (enemyRt == null || enemyRt.health <= 0) continue;
 
+                    // NEW: respect combat rules (movement type, attack mode, per-card nerfs)
+                    if (!CombatRules.CanUnitAttackUnit(unit, enemy))
+                        continue;
+
                     float distSqr = SqrDistanceToAgent(enemy, pos);
                     if (distSqr < bestDistSqr)
                     {
@@ -149,7 +153,6 @@ namespace Game.Match.Battle
                         bestEnemyTower = null;
                     }
                 }
-
                 // 2) If no enemy units, consider towers
                 if (bestEnemyUnit == null)
                 {
@@ -157,6 +160,10 @@ namespace Game.Match.Battle
                     {
                         var tower = enemyTowers[j];
                         if (tower == null || tower.currentHp <= 0) continue;
+
+                        // NEW: respect combat rules (per-card tower permissions)
+                        if (!CombatRules.CanUnitAttackTower(unit, tower))
+                            continue;
 
                         float distSqr = SqrDistanceToTower(tower, pos);
                         if (distSqr < bestDistSqr)

@@ -2679,8 +2679,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Battle.BattleTower
   ownerId: 0
   index: 0
-  maxHp: 100
-  currentHp: 100
+  maxHp: 1000
+  currentHp: 1000
   attack: 10
   rangeMeters: 8
   nextAttackTime: 0

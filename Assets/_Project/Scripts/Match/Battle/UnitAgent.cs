@@ -2,6 +2,7 @@
 using Game.Match.Cards;
 using Game.Match.Units;
 using Game.Match.Graveyard;
+using Game.Core;
 
 namespace Game.Match.Battle
 {
@@ -9,8 +10,8 @@ namespace Game.Match.Battle
     /// Handles per-unit runtime data for the battle stage:
     /// - Stores owner + source card
     /// - Initializes UnitRuntime from CardSO
-    /// - Moves along its lane (unless movement is locked)
-    /// - Applies simple aggro logic (chase closest enemy unit/tower in front within aggro range).
+    /// - Moves along its lane and steers toward aggro targets
+    /// - Exposes attack timing fields used by CombatResolver
     /// </summary>
     [RequireComponent(typeof(UnitRuntime))]
     public class UnitAgent : MonoBehaviour
@@ -24,7 +25,7 @@ namespace Game.Match.Battle
         [SerializeField] private Vector3 moveDirection = Vector3.zero;
 
         [Tooltip("Base lane direction this unit follows when it has no target.")]
-        [SerializeField] private Vector3 _laneDirection = Vector3.zero;
+        [SerializeField] private Vector3 laneDirection = Vector3.zero;
 
         [Tooltip("Units per second along movement direction.")]
         public float moveSpeed = 3f;
@@ -41,12 +42,15 @@ namespace Game.Match.Battle
 
         private UnitRuntime _runtime;
 
-        // Aggro settings copied from CardSO so behaviour is configured per card, not per prefab.
+        // Aggro settings copied from CardSO so behaviour is configured per card.
         private float _chaseRangeMultiplier = 3f;
         private float _frontArcDotThreshold = 0.2f;
 
         // Static cache so we don't keep searching for towers every frame.
         private static BattleTower[] _cachedTowers;
+
+        // Remember who we're currently focused on (unit or tower).
+        private Transform _currentTarget;
 
         private void Awake()
         {
@@ -61,15 +65,15 @@ namespace Game.Match.Battle
             ownerId = owner;
             sourceCard = card;
 
-            _laneDirection = direction.normalized;
-            moveDirection = _laneDirection;
+            laneDirection = direction.normalized;
+            moveDirection = laneDirection;
             nextAttackTime = 0f;
             movementLocked = false;
+            _currentTarget = null;
 
             if (_runtime == null)
                 _runtime = GetComponent<UnitRuntime>();
 
-            // Copy stats from CardSO into runtime
             if (_runtime != null && card != null)
             {
                 _runtime.InitFrom(card);
@@ -98,8 +102,78 @@ namespace Game.Match.Battle
         }
 
         /// <summary>
+        /// Checks if the current remembered target is still a valid aggro target
+        /// (alive, in chase range, allowed by CombatRules).
+        /// If valid, returns it; otherwise clears it and returns null.
+        /// </summary>
+        private Transform ValidateCurrentTarget(float chaseRangeSqr, Vector3 myPos)
+        {
+            if (_currentTarget == null)
+                return null;
+
+            // Is it a tower?
+            var tower = _currentTarget.GetComponent<BattleTower>();
+            if (tower != null)
+            {
+                if (tower.ownerId == ownerId || tower.currentHp <= 0)
+                {
+                    _currentTarget = null;
+                    return null;
+                }
+
+                if (!CombatRules.CanUnitAttackTower(this, tower))
+                {
+                    _currentTarget = null;
+                    return null;
+                }
+
+                Vector3 to = tower.transform.position - myPos;
+                to.y = 0f;
+                if (to.sqrMagnitude > chaseRangeSqr)
+                {
+                    _currentTarget = null;
+                    return null;
+                }
+
+                return _currentTarget;
+            }
+
+            // Otherwise, treat it as a unit
+            var unit = _currentTarget.GetComponent<UnitAgent>();
+            if (unit == null)
+            {
+                _currentTarget = null;
+                return null;
+            }
+
+            var enemyRuntime = unit.GetComponent<UnitRuntime>();
+            if (enemyRuntime == null || enemyRuntime.health <= 0)
+            {
+                _currentTarget = null;
+                return null;
+            }
+
+            if (!CombatRules.CanUnitAttackUnit(this, unit))
+            {
+                _currentTarget = null;
+                return null;
+            }
+
+            Vector3 toUnit = unit.transform.position - myPos;
+            toUnit.y = 0f;
+            if (toUnit.sqrMagnitude > chaseRangeSqr)
+            {
+                _currentTarget = null;
+                return null;
+            }
+
+            return _currentTarget;
+        }
+
+        /// <summary>
         /// Returns the closest enemy (unit or tower) in front of us within our aggro range,
-        /// or null if there is none.
+        /// that we are actually allowed to attack according to CombatRules.
+        /// Uses currentTarget if still valid, so we don't drop targets that pass behind us.
         /// </summary>
         private Transform FindBestTargetInAggroRange()
         {
@@ -107,16 +181,14 @@ namespace Game.Match.Battle
             if (resolver == null || _runtime == null)
                 return null;
 
-            // Decide which units we consider "enemies".
             var enemyUnits = (ownerId == 0)
-                ? resolver.RemoteUnits   // local → look at remote list
-                : resolver.LocalUnits;   // remote → look at local list
+                ? resolver.RemoteUnits
+                : resolver.LocalUnits;
 
             Vector3 myPos = transform.position;
 
-            // "Forward" is the lane direction; fall back to transform.forward if needed.
-            Vector3 baseForward = _laneDirection.sqrMagnitude > 0.0001f
-                ? _laneDirection.normalized
+            Vector3 baseForward = laneDirection.sqrMagnitude > 0.0001f
+                ? laneDirection.normalized
                 : transform.forward;
 
             float attackRange = Mathf.Max(0.1f, _runtime.rangeMeters);
@@ -126,6 +198,12 @@ namespace Game.Match.Battle
 
             float chaseRangeSqr = chaseRange * chaseRange;
 
+            // 0) First, see if our current target is still valid (no front-arc restriction for retention).
+            var validated = ValidateCurrentTarget(chaseRangeSqr, myPos);
+            if (validated != null)
+                return validated;
+
+            // If we got here, we have no valid current target → search for a new one.
             Transform best = null;
             float bestDistSqr = float.MaxValue;
 
@@ -134,15 +212,19 @@ namespace Game.Match.Battle
             {
                 for (int i = 0; i < enemyUnits.Count; i++)
                 {
-                    var other = enemyUnits[i];
-                    if (other == null || other == this)
+                    var enemy = enemyUnits[i];
+                    if (enemy == null || enemy == this)
                         continue;
 
-                    var otherRuntime = other.GetComponent<UnitRuntime>();
-                    if (otherRuntime != null && otherRuntime.health <= 0)
+                    var enemyRuntime = enemy.GetComponent<UnitRuntime>();
+                    if (enemyRuntime == null || enemyRuntime.health <= 0)
                         continue;
 
-                    Vector3 to = other.transform.position - myPos;
+                    // Respect combat rules (ground melee can't hit air, per-card nerfs, etc.)
+                    if (!CombatRules.CanUnitAttackUnit(this, enemy))
+                        continue;
+
+                    Vector3 to = enemy.transform.position - myPos;
                     to.y = 0f;
                     float distSqr = to.sqrMagnitude;
                     if (distSqr < 0.0001f || distSqr > chaseRangeSqr)
@@ -156,7 +238,7 @@ namespace Game.Match.Battle
                     if (distSqr < bestDistSqr)
                     {
                         bestDistSqr = distSqr;
-                        best = other.transform;
+                        best = enemy.transform;
                     }
                 }
             }
@@ -170,11 +252,13 @@ namespace Game.Match.Battle
                     if (tower == null)
                         continue;
 
-                    // Only towers belonging to the enemy side.
                     if (tower.ownerId == ownerId)
                         continue;
 
                     if (tower.currentHp <= 0)
+                        continue;
+
+                    if (!CombatRules.CanUnitAttackTower(this, tower))
                         continue;
 
                     Vector3 to = tower.transform.position - myPos;
@@ -196,6 +280,7 @@ namespace Game.Match.Battle
                 }
             }
 
+            _currentTarget = best;
             return best;
         }
 
@@ -204,12 +289,20 @@ namespace Game.Match.Battle
             // If we're engaged in combat, we stay put.
             if (movementLocked) return;
 
-            if (_laneDirection == Vector3.zero) return;
+            if (laneDirection == Vector3.zero) return;
+
+            if (_runtime == null)
+                _runtime = GetComponent<UnitRuntime>();
 
             // Default: move along the lane.
-            Vector3 desiredDir = _laneDirection;
+            Vector3 desiredDir = laneDirection;
 
-            // Try to acquire a target (unit or tower) in front of us within aggro range.
+            bool isDiveFlier =
+                _runtime != null &&
+                _runtime.isDiveFlier &&
+                _runtime.movementType == MovementType.Flying &&
+                _runtime.attackMode == AttackMode.Melee;
+
             var target = FindBestTargetInAggroRange();
             if (target != null && _runtime != null)
             {
@@ -220,21 +313,59 @@ namespace Game.Match.Battle
                 float attackRange = Mathf.Max(0.1f, _runtime.rangeMeters);
                 float attackRangeSqr = attackRange * attackRange;
 
-                // If we're outside attack range but inside aggro range, steer towards the target.
+                // Handle dive-flier height layer based on what we're attacking.
+                if (isDiveFlier)
+                {
+                    var targetTower = target.GetComponent<BattleTower>();
+                    var targetUnitRt = target.GetComponent<UnitRuntime>();
+
+                    bool targetIsGround = false;
+                    bool targetIsFlying = false;
+
+                    if (targetTower != null)
+                    {
+                        targetIsGround = true;
+                    }
+                    else if (targetUnitRt != null)
+                    {
+                        if (targetUnitRt.heightLayer == HeightLayer.Ground)
+                            targetIsGround = true;
+                        else
+                            targetIsFlying = true;
+                    }
+
+                    if (targetIsGround)
+                        _runtime.heightLayer = HeightLayer.Ground;
+                    else if (targetIsFlying)
+                        _runtime.heightLayer = HeightLayer.Air;
+                }
+
+                // If we're outside attack range but inside aggro, steer toward the target.
                 if (distSqr > attackRangeSqr)
                 {
                     Vector3 chaseDir = toTarget.normalized;
                     if (chaseDir != Vector3.zero)
                         desiredDir = chaseDir;
                 }
-                // If already within attack range, CombatResolver will handle locking movement & attacks.
+                // If already within attack range, CombatResolver will lock movement via movementLocked.
+            }
+            else
+            {
+                // No target -> dive fliers float back up to Air.
+                if (isDiveFlier &&
+                    _runtime.heightLayer == HeightLayer.Ground &&
+                    _runtime.movementType == MovementType.Flying)
+                {
+                    _runtime.heightLayer = HeightLayer.Air;
+                }
+
+                _currentTarget = null;
             }
 
             transform.position += desiredDir * (moveSpeed * Time.deltaTime);
 
-            // Keep moveDirection in sync for any systems that read it, but laneDirection stays fixed.
+            // Keep moveDirection in sync for any systems that read it.
             moveDirection = desiredDir;
         }
     }
 }
-
