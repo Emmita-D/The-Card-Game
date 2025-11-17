@@ -1,4 +1,5 @@
 using UnityEngine;
+using Game.Match.Traps;   // <-- NEW: for TrapService
 
 namespace Game.Match.Battle
 {
@@ -30,6 +31,29 @@ namespace Game.Match.Battle
             if (maxHp < 1) maxHp = 1;
             if (currentHp < 0) currentHp = 0;
             if (currentHp > maxHp) currentHp = maxHp;
+        }
+
+        /// <summary>
+        /// Apply damage to this tower and notify TrapService about the HP change.
+        /// All tower damage should go through this method so traps can trigger correctly.
+        /// </summary>
+        public void ApplyDamage(int amount)
+        {
+            if (amount <= 0)
+                return;
+
+            if (currentHp <= 0)
+                return; // already destroyed
+
+            int oldHp = currentHp;
+            int newHp = Mathf.Max(0, currentHp - amount);
+            currentHp = newHp;
+
+            var trapService = TrapService.Instance;
+            if (trapService != null)
+            {
+                trapService.NotifyTowerHpChanged(this, oldHp, newHp, maxHp);
+            }
         }
     }
 }

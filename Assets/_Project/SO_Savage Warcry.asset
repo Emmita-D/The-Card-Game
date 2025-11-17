@@ -13,11 +13,17 @@ MonoBehaviour:
   m_Name: SO_Savage Warcry
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
   cardName: Savage Warcry
-  rulesText: 'When a tower falls or the main tower drops below 25% hp, spread 10
-    "Savage" tokens across units. '
-  type: 2
+  rulesText: Buff a random unit in hand
+  type: 1
   realm: 1
   race: 1
+  spellEffect: 3
+  spellSearchRealmFilter: 1
+  spellBuffAttackAmount: 2
+  spellBuffHealthAmount: 2
+  trapEffect: 0
+  trapDamageAmount: 100
+  trapHpThresholdFraction: 0.5
   sizeW: 1
   sizeH: 1
   manaStars: 0
@@ -28,6 +34,10 @@ MonoBehaviour:
   movement: 0
   chaseRangeMultiplier: 5
   frontArcDotThreshold: 0.2
+  canAttackGroundUnits: 1
+  canAttackFlyingUnits: 1
+  canAttackTowers: 1
+  isDiveFlier: 0
   artSprite: {fileID: 21300000, guid: 3a70e772f51932b4da6e5cbbe9be41c2, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0

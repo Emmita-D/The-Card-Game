@@ -9,6 +9,8 @@ using Game.Match.State;
 using Game.Match.Graveyard;
 using Game.Match.CardPhase;   // 👈 needed for BattlePlacementRegistry
 using Game.Match.Log;
+using Game.Match.Traps;
+
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -176,9 +178,39 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                     }
                 }
 
-                // Send spent card to the owner’s realm graveyard
-                if (instance != null && instance.data != null)
-                    GraveyardService.Instance.Add(instance.ownerId, instance.data);
+                // NEW: run simple v1 spell effects (like SearchUnitByRealm, RefillManaToMax),
+                // or arm traps via TrapService.
+                int ownerId = (instance != null) ? instance.ownerId : 0;
+
+                if (so != null)
+                {
+                    if (so.type == CardType.Spell)
+                    {
+                        CardEffectRunner.RunOnSpellResolved(so, ownerId);
+
+                        // Spells are consumed immediately -> graveyard.
+                        if (instance != null && instance.data != null)
+                            GraveyardService.Instance.Add(ownerId, instance.data);
+                    }
+                    else if (so.type == CardType.Trap)
+                    {
+                        // Arm trap, do NOT send to graveyard yet.
+                        if (TrapService.Instance != null)
+                        {
+                            TrapService.Instance.RegisterTrap(so, ownerId);
+                        }
+                        else
+                        {
+                            Debug.LogWarning("[DraggableCard] Tried to set a trap, but TrapService.Instance is null.");
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: non-unit, non-spell, non-trap card -> just send to graveyard.
+                        if (instance != null && instance.data != null)
+                            GraveyardService.Instance.Add(ownerId, instance.data);
+                    }
+                }
 
                 ConsumeAndDestroy();
                 return;
@@ -186,7 +218,6 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             SnapBack();
             return;
         }
-
         // ---- Units: must be affordable ----
         if (aff != null && !aff.ComputeAffordableNow()) { SnapBack(); return; }
 

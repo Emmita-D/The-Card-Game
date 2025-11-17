@@ -6,7 +6,7 @@ using Game.Match.Mana;        // ManaPool (Slots/Current/SetSlots/SetCurrent)
 using Game.Match.Graveyard;
 using Game.Match.Battle;     // CardPhaseBattleLauncher
 using Game.Match.Log;
-
+using Game.Core;
 
 namespace Game.Match.State
 {
@@ -18,6 +18,7 @@ namespace Game.Match.State
         [SerializeField] private TurnTimerHUD timer;        // drag TurnTimerHUD here
         [SerializeField] private CardPhaseBattleLauncher battleLauncher; // drag CardPhaseBattleLauncher here
         [SerializeField] private bool autoStart = true;
+        [SerializeField] private Game.Match.Mana.ManaPool[] manaPools;
 
         [Header("Deck & Hand")]
         [SerializeField] private List<CardSO> deckList = new();
@@ -258,6 +259,235 @@ namespace Game.Match.State
                 $"[Turn] Draw({originalCount}) → drew={drawn}, hand={beforeHand}->{hand.Count}, deck={beforeDeck}->{deck.Count}"
             );
         }
+
+        /// <summary>
+        /// Resolve a simple "search unit in deck and add to hand" spell.
+        /// Uses the spell's spellSearchRealmFilter to pick a unit CardSO from the deck.
+        /// </summary>
+        public void ResolveSearchSpell(CardSO spell, int ownerIdForEffect)
+        {
+            if (spell == null)
+                return;
+
+            // Only makes sense for spells with SearchUnitByRealm
+            if (spell.spellEffect != SpellEffectKind.SearchUnitByRealm)
+                return;
+
+            var realmFilter = spell.spellSearchRealmFilter;
+
+            if (deck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSearchSpell: deck empty, nothing to search.");
+                var loggerEmpty = ActionLogService.Instance;
+                if (loggerEmpty != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerEmpty.SystemCard($"Cast {spellName}, but the deck was empty.");
+                }
+                return;
+            }
+
+            // Copy queue → list so we can remove exactly one matching card and rebuild in the same order.
+            var tmp = new List<CardSO>(deck);
+            deck.Clear();
+
+            CardSO found = null;
+
+            foreach (var card in tmp)
+            {
+                if (found == null &&
+                    card != null &&
+                    card.type == CardType.Unit &&
+                    card.realm == realmFilter)
+                {
+                    // First matching unit in the chosen realm -> we "tutor" this.
+                    found = card;
+                    continue; // don't re-enqueue this one
+                }
+
+                deck.Enqueue(card);
+            }
+
+            if (found == null)
+            {
+                Debug.Log($"[Turn] ResolveSearchSpell: no unit in realm {realmFilter} found in deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerNone.SystemCard($"Cast {spellName}, but found no valid unit in the deck.");
+                }
+                return;
+            }
+
+            // If hand is full, we burn the searched card to graveyard (v1 behaviour).
+            if (hand.Count >= handMax)
+            {
+                Debug.Log(
+                    $"[Turn] ResolveSearchSpell: hand full ({handMax}), cannot add searched card {found.cardName}. Sending to graveyard."
+                );
+
+                var loggerFull = ActionLogService.Instance;
+                if (loggerFull != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    string foundName = string.IsNullOrEmpty(found.cardName) ? found.name : found.cardName;
+                    loggerFull.SystemCard(
+                        $"Cast {spellName}, found {foundName} but your hand is full. The card was sent to the graveyard."
+                    );
+                }
+
+                var gy = GraveyardService.Instance;
+                if (gy != null)
+                    gy.Add(ownerIdForEffect, found);
+
+                return;
+            }
+
+            // Normal case: add to hand as a CardInstance
+            var ci = new CardInstance(found, ownerIdForEffect);
+            hand.Add(ci);
+
+            var logger = ActionLogService.Instance;
+            if (logger != null)
+            {
+                string foundName = string.IsNullOrEmpty(found.cardName) ? found.name : found.cardName;
+                logger.CardLocal(
+                    $"Searched the deck and added {foundName} to your hand.",
+                    found.artSprite,
+                    found
+                );
+            }
+
+            // Update hand UI
+            PushHandToView();
+        }
+
+        public void ResolveRefillManaSpell(CardSO spell, int ownerIdForEffect)
+        {
+            if (spell == null)
+                return;
+
+            if (spell.spellEffect != SpellEffectKind.RefillManaToMax)
+                return;
+
+            bool manaActuallyRefilled = false;
+
+            // Use the ManaPool for this owner (0 = local, 1 = remote)
+            if (manaPools != null &&
+                ownerIdForEffect >= 0 &&
+                ownerIdForEffect < manaPools.Length &&
+                manaPools[ownerIdForEffect] != null)
+            {
+                var pool = manaPools[ownerIdForEffect];
+
+                // Refill: set Current to max (Slots)
+                pool.SetCurrent(pool.Slots);
+                manaActuallyRefilled = true;
+            }
+            else
+            {
+                Debug.LogWarning(
+                    $"[Turn] ResolveRefillManaSpell: no ManaPool hooked up for owner {ownerIdForEffect}."
+                );
+            }
+
+            var logger = ActionLogService.Instance;
+            if (logger != null)
+            {
+                string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+
+                if (manaActuallyRefilled)
+                {
+                    logger.SystemCard($"Cast {spellName} and refilled your mana to max.");
+                }
+                else
+                {
+                    logger.SystemCard(
+                        $"Cast {spellName}, but no ManaPool was assigned for this player."
+                    );
+                }
+            }
+        }
+
+        public void ResolveBuffHandSpell(CardSO spell, int ownerIdForEffect)
+        {
+            if (spell == null)
+                return;
+
+            if (spell.spellEffect != SpellEffectKind.BuffRandomHandUnitSimple)
+                return;
+
+            // Collect candidate unit cards in this player's hand.
+            var candidates = new List<CardInstance>();
+
+            for (int i = 0; i < hand.Count; i++)
+            {
+                var ci = hand[i];
+                if (ci == null || ci.data == null)
+                    continue;
+
+                // Only buff units, and only for the correct owner.
+                if (ci.data.type != CardType.Unit)
+                    continue;
+
+                if (ci.ownerId != ownerIdForEffect)
+                    continue;
+
+                candidates.Add(ci);
+            }
+
+            var logger = ActionLogService.Instance;
+
+            if (candidates.Count == 0)
+            {
+                if (logger != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    logger.SystemCard(
+                        $"Cast {spellName}, but you had no unit cards in hand to buff."
+                    );
+                }
+                return;
+            }
+
+            // Pick a random candidate.
+            int idx = UnityEngine.Random.Range(0, candidates.Count);
+            var chosen = candidates[idx];
+            var chosenData = chosen.data;
+
+            int atkBonus = spell.spellBuffAttackAmount;
+            int hpBonus = spell.spellBuffHealthAmount;
+
+            // v1: directly modify the CardSO stats.
+            if (chosenData != null)
+            {
+                chosenData.attack += atkBonus;
+                chosenData.health += hpBonus;
+            }
+
+            // Log it.
+            if (logger != null && chosenData != null)
+            {
+                string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                string targetName = string.IsNullOrEmpty(chosenData.cardName)
+                    ? chosenData.name
+                    : chosenData.cardName;
+
+                string msg = $"Cast {spellName}: {targetName} in your hand gains " +
+                             $"+{atkBonus} ATK / +{hpBonus} HP.";
+
+                logger.CardLocal(
+                    msg,
+                    chosenData.artSprite,
+                    chosenData
+                );
+            }
+
+            // Refresh hand UI so updated stats show up on the card.
+            PushHandToView();
+        }
+
 
         private void PushHandToView()
         {

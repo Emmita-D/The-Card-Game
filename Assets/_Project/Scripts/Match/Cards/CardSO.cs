@@ -3,6 +3,22 @@ using Game.Core;   // CardType, Realm, Race, AttackMode, MovementType, SizeClass
 
 namespace Game.Match.Cards
 {
+    // v1 spell effects.
+    public enum SpellEffectKind
+    {
+        None = 0,
+        SearchUnitByRealm = 1,
+        RefillManaToMax = 2,
+        BuffRandomHandUnitSimple = 3
+    }
+
+    // v1 trap effects.
+    public enum TrapEffectKind
+    {
+        None = 0,
+        TowerBelowHalf_DamageRandomEnemyUnit = 1
+    }
+
     [CreateAssetMenu(fileName = "NewCard", menuName = "Game/Cards/Card", order = 0)]
     public class CardSO : ScriptableObject
     {
@@ -14,6 +30,29 @@ namespace Game.Match.Cards
         public CardType type = CardType.Unit;
         public Realm realm = Realm.Empyrean;
         public Race race = Race.Human;
+
+        [Header("Spell (if Spell)")]
+        [Tooltip("Simple v1 effect used by the CardEffectRunner for spells.")]
+        public SpellEffectKind spellEffect = SpellEffectKind.None;
+
+        [Tooltip("Realm filter for SearchUnitByRealm spells. Only unit cards from this realm are eligible.")]
+        public Realm spellSearchRealmFilter = Realm.Empyrean;
+
+        [Tooltip("Attack bonus for simple buff spells that target a unit in hand.")]
+        public int spellBuffAttackAmount = 2;
+
+        [Tooltip("Health bonus for simple buff spells that target a unit in hand.")]
+        public int spellBuffHealthAmount = 2;
+
+        [Header("Trap (if Trap)")]
+        [Tooltip("Simple v1 effect used by TrapService for traps.")]
+        public TrapEffectKind trapEffect = TrapEffectKind.None;
+
+        [Tooltip("Damage dealt by this trap when it triggers (for tower-below-half trap).")]
+        public int trapDamageAmount = 100;
+
+        [Tooltip("Fraction of tower max HP below which this trap triggers (e.g., 0.5 = 50%).")]
+        [Range(0f, 1f)] public float trapHpThresholdFraction = 0.5f;
 
         [Header("Footprint (tiles)")]
         [Range(1, 4)] public int sizeW = 1;
@@ -60,7 +99,6 @@ namespace Game.Match.Cards
         public bool isLegend = false;
 
         // Back-compat for older code that expects an enum SizeClass
-        // Maps your sizeW/sizeH to the nearest legacy bucket.
         public SizeClass size
         {
             get

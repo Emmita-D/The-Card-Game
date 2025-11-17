@@ -10,29 +10,29 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
-  m_Name: SO_Devoted Ritual
+  m_Name: SO_Devoted Search
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: Devoted Ritual
-  rulesText: Refill mana to max
+  cardName: Devoted Search
+  rulesText: Search a Devoted Sectatore
   type: 1
   realm: 0
   race: 0
-  spellEffect: 2
+  spellEffect: 1
   spellSearchRealmFilter: 0
   sizeW: 1
   sizeH: 1
-  manaStars: 1
-  attack: 2
-  health: 150
-  attackMode: 1
-  rangeMeters: 1
-  movement: 1
+  manaStars: 0
+  attack: 0
+  health: 1
+  attackMode: 0
+  rangeMeters: 0
+  movement: 0
   chaseRangeMultiplier: 3
   frontArcDotThreshold: 0.2
   canAttackGroundUnits: 1
   canAttackFlyingUnits: 1
   canAttackTowers: 1
   isDiveFlier: 0
-  artSprite: {fileID: 21300000, guid: 2cf8d247dcf936a458097696b8da0462, type: 3}
+  artSprite: {fileID: 21300000, guid: a47098ffcfbd3a144828ca877418bcf0, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0

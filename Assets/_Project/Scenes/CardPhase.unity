@@ -1940,8 +1940,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Mana.ManaPool
   cfg: {fileID: 0}
-  startSlots: 10
-  startCurrent: 10
+  startSlots: 0
+  startCurrent: 0
 --- !u!1 &874025080
 GameObject:
   m_ObjectHideFlags: 0
@@ -3925,20 +3925,27 @@ MonoBehaviour:
   timer: {fileID: 412263326}
   battleLauncher: {fileID: 1824448878}
   autoStart: 1
+  manaPools:
+  - {fileID: 670206535}
   deckList:
-  - {fileID: 11400000, guid: b37695a9b66c185489ced2a01037d2b3, type: 2}
+  - {fileID: 11400000, guid: f5a5a8166ee756b49aaa705c9c602103, type: 2}
   - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
-  - {fileID: 11400000, guid: 72e5b3a222c63864ab82696e70974429, type: 2}
   - {fileID: 11400000, guid: e1ad58cd5053c7649bfe7e539d07f0f1, type: 2}
+  - {fileID: 11400000, guid: e1ad58cd5053c7649bfe7e539d07f0f1, type: 2}
+  - {fileID: 11400000, guid: b37695a9b66c185489ced2a01037d2b3, type: 2}
   - {fileID: 11400000, guid: 59626b83f0b71c94cbcaf786aed2ab39, type: 2}
   - {fileID: 11400000, guid: 84e85f4777a39ac40beaeee067745f6e, type: 2}
+  - {fileID: 11400000, guid: f5a5a8166ee756b49aaa705c9c602103, type: 2}
   - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
   - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
+  - {fileID: 11400000, guid: e1ad58cd5053c7649bfe7e539d07f0f1, type: 2}
+  - {fileID: 11400000, guid: f5a5a8166ee756b49aaa705c9c602103, type: 2}
+  - {fileID: 11400000, guid: 72e5b3a222c63864ab82696e70974429, type: 2}
+  - {fileID: 11400000, guid: b37695a9b66c185489ced2a01037d2b3, type: 2}
+  - {fileID: 11400000, guid: b37695a9b66c185489ced2a01037d2b3, type: 2}
+  - {fileID: 11400000, guid: b243bb5db7dab5f4a9314935c16e24ec, type: 2}
+  - {fileID: 11400000, guid: b243bb5db7dab5f4a9314935c16e24ec, type: 2}
+  - {fileID: 11400000, guid: b243bb5db7dab5f4a9314935c16e24ec, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0
@@ -4699,8 +4706,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Battle.CardPhaseBattleLauncher
   battleSceneName: BattleStage
-  debugRemoteUnits:
-  - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
+  debugRemoteUnits: []
 --- !u!4 &1824448879
 Transform:
   m_ObjectHideFlags: 0

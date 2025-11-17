@@ -1,6 +1,7 @@
+﻿using Game.Match.Units;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
-using Game.Match.Units;
 
 namespace Game.Match.Battle
 {
@@ -141,7 +142,7 @@ namespace Game.Match.Battle
                     var enemyRt = enemy.GetComponent<UnitRuntime>();
                     if (enemyRt == null || enemyRt.health <= 0) continue;
 
-                    // NEW: respect combat rules (movement type, attack mode, per-card nerfs)
+                    // Respect combat rules (movement type, attack mode, per-card nerfs)
                     if (!CombatRules.CanUnitAttackUnit(unit, enemy))
                         continue;
 
@@ -161,7 +162,7 @@ namespace Game.Match.Battle
                         var tower = enemyTowers[j];
                         if (tower == null || tower.currentHp <= 0) continue;
 
-                        // NEW: respect combat rules (per-card tower permissions)
+                        // Respect combat rules (per-card tower permissions)
                         if (!CombatRules.CanUnitAttackTower(unit, tower))
                             continue;
 
@@ -198,23 +199,12 @@ namespace Game.Match.Battle
 
                     if (bestEnemyUnit != null)
                     {
-                        var enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
-                        if (enemyRuntime != null && enemyRuntime.health > 0)
-                        {
-                            enemyRuntime.health -= damage;
-                            if (enemyRuntime.health <= 0)
-                            {
-                                // Remove & destroy
-                                if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
-                                else _remoteUnits.Remove(bestEnemyUnit);
-                                UnitDied?.Invoke(bestEnemyUnit);
-                                Destroy(bestEnemyUnit.gameObject);
-                            }
-                        }
+                        // Use shared kill helper so UnitDied + list cleanup are consistent.
+                        KillUnit(bestEnemyUnit, damage);
                     }
                     else // tower
                     {
-                        bestEnemyTower.currentHp -= damage;
+                        bestEnemyTower.ApplyDamage(damage);
                         if (bestEnemyTower.currentHp <= 0)
                         {
                             bestEnemyTower.currentHp = 0;
@@ -301,22 +291,12 @@ namespace Game.Match.Battle
 
                 if (bestEnemyUnit != null)
                 {
-                    var rt = bestEnemyUnit.GetComponent<UnitRuntime>();
-                    if (rt != null && rt.health > 0)
-                    {
-                        rt.health -= damage;
-                        if (rt.health <= 0)
-                        {
-                            if (bestEnemyUnit.ownerId == 0) _localUnits.Remove(bestEnemyUnit);
-                            else _remoteUnits.Remove(bestEnemyUnit);
-                            UnitDied?.Invoke(bestEnemyUnit);
-                            Destroy(bestEnemyUnit.gameObject);
-                        }
-                    }
+                    // Use shared kill helper so UnitDied + list cleanup are consistent.
+                    KillUnit(bestEnemyUnit, damage);
                 }
                 else
                 {
-                    bestEnemyTower.currentHp -= damage;
+                    bestEnemyTower.ApplyDamage(damage);
                     if (bestEnemyTower.currentHp <= 0)
                     {
                         bestEnemyTower.currentHp = 0;
@@ -325,6 +305,41 @@ namespace Game.Match.Battle
                 }
 
                 tower.nextAttackTime = Time.time + towerAttackIntervalSeconds;
+            }
+        }
+
+        /// <summary>
+        /// Apply damage to a unit, remove it from the correct list, fire UnitDied,
+        /// and destroy its GameObject if it dies.
+        /// Use this for ALL lethal damage (including traps) so the battle flow stays in sync.
+        ///summary>
+        public void KillUnit(UnitAgent unit, int damage)
+        {
+            if (unit == null)
+                return;
+
+            var rt = unit.GetComponent<UnitRuntime>();
+            if (rt == null || rt.health <= 0)
+                return;
+
+            int finalDamage = Mathf.Max(0, damage);
+            if (finalDamage <= 0)
+                return;
+
+            rt.health -= finalDamage;
+            if (rt.health <= 0)
+            {
+                // Remove from the correct list.
+                if (unit.ownerId == 0)
+                    _localUnits.Remove(unit);
+                else
+                    _remoteUnits.Remove(unit);
+
+                // Notify listeners (BattleSceneController, etc.).
+                UnitDied?.Invoke(unit);
+
+                // Destroy the GameObject so GraveyardOnDestroy & visuals run.
+                Destroy(unit.gameObject);
             }
         }
 

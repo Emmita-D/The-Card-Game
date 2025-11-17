@@ -12,12 +12,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
   m_Name: SO_SectatoreTrap
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: SectatoreTrap
-  rulesText: If you control 5 "Faithful" Units, you can activate this card to heal
-    one Sectatore Unit for 200hp.
+  cardName: Sectatore Trap
+  rulesText: If tower falls below 50% deal 100dmg to random unit
   type: 2
   realm: 0
   race: 0
+  spellEffect: 0
+  spellSearchRealmFilter: 0
+  trapEffect: 1
+  trapDamageAmount: 100
+  trapHpThresholdFraction: 0.5
   sizeW: 1
   sizeH: 1
   manaStars: 0
@@ -28,6 +32,10 @@ MonoBehaviour:
   movement: 0
   chaseRangeMultiplier: 5
   frontArcDotThreshold: 0.2
+  canAttackGroundUnits: 1
+  canAttackFlyingUnits: 1
+  canAttackTowers: 1
+  isDiveFlier: 0
   artSprite: {fileID: 21300000, guid: 500914c6cb6883b4e88418668418f4ae, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0
