@@ -1082,7 +1082,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Log.ActionLogCardPreview
   panelRoot: {fileID: 1293417430}
-  cardParent: {fileID: 699102045}
+  cardParent: {fileID: 537238065}
   cardViewPrefab: {fileID: 2686136281024149942, guid: 464cc35bc1ceb5c4ebbe0a52493fe6c8, type: 3}
 --- !u!114 &537238067
 MonoBehaviour:

@@ -5,6 +5,8 @@ using Game.Match.State;   // BattleDescriptor, BattleUnitSeed, BattleResult, Uni
 using Game.Match.Units;
 using Game.Match.CardPhase; // to read board center from BattlePlacementRegistry
 using Game.Match.Battle;    // BattleRecallController, UnitOriginStamp
+using Game.Match.Status;    // StatBuffStatus
+using Game.Match.Traps;
 
 namespace Game.Match.Battle
 {
@@ -187,7 +189,17 @@ namespace Game.Match.Battle
             // Spawn units for this particular round
             SpawnUnits(desc);
 
-            // NEW: edge case – empty battle (no units spawned on either side)
+            // 🔹 NEW: Trigger "GroundEnemyFlierForTime" traps at the beginning of battle
+            // Condition: if the opponent controls any flying unit, trap triggers.
+            var trapService = TrapService.Instance;
+            if (trapService != null)
+            {
+                // For now, check for both owners so the system is future-proof.
+                trapService.TryTriggerGroundEnemyFlierTrapsForOwner(0);
+                trapService.TryTriggerGroundEnemyFlierTrapsForOwner(1);
+            }
+
+            // Edge case – empty battle (no units spawned on either side)
             if (recallController != null)
             {
                 // Only treat it as "empty battle" if both sides truly have no alive units
@@ -334,8 +346,17 @@ namespace Game.Match.Battle
             var agent = go.GetComponent<UnitAgent>();
             if (agent == null) agent = go.AddComponent<UnitAgent>();
             agent.Initialize(seed.card, seed.ownerId, moveForward);
-            combatResolver?.RegisterUnit(agent);
 
+            combatResolver?.RegisterUnit(agent);
+            if (seed.bonusAttack != 0 || seed.bonusHealth != 0)
+            {
+                var runtime = go.GetComponentInChildren<UnitRuntime>();
+                if (runtime != null && runtime.StatusController != null)
+                {
+                    var buff = new StatBuffStatus(seed.bonusAttack, seed.bonusHealth);
+                    runtime.StatusController.AddStatus(buff);
+                }
+            }
             var stamp = go.AddComponent<UnitOriginStamp>();
             stamp.ownerId = seed.ownerId;
             stamp.sourceCard = seed.card;

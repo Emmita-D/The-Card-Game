@@ -120,7 +120,7 @@ namespace Game.Match.Battle
                 if (unit == null) continue;
 
                 var runtime = unit.GetComponent<UnitRuntime>();
-                if (runtime == null || runtime.health <= 0) continue;
+                if (runtime == null || runtime.GetFinalHealth() <= 0) continue;
 
                 float attackRange = runtime.rangeMeters > 0 ? runtime.rangeMeters : defaultMeleeRangeMeters;
                 float rangeSqr = attackRange * attackRange;
@@ -140,7 +140,7 @@ namespace Game.Match.Battle
                     if (enemy == null) continue;
 
                     var enemyRt = enemy.GetComponent<UnitRuntime>();
-                    if (enemyRt == null || enemyRt.health <= 0) continue;
+                    if (enemyRt == null || enemyRt.GetFinalHealth() <= 0) continue;
 
                     // Respect combat rules (movement type, attack mode, per-card nerfs)
                     if (!CombatRules.CanUnitAttackUnit(unit, enemy))
@@ -195,7 +195,7 @@ namespace Game.Match.Battle
 
                 if (Time.time >= unit.nextAttackTime)
                 {
-                    int damage = Mathf.Max(1, runtime.attack);
+                    int damage = Mathf.Max(1, runtime.GetFinalAttack());
 
                     if (bestEnemyUnit != null)
                     {
@@ -210,6 +210,12 @@ namespace Game.Match.Battle
                             bestEnemyTower.currentHp = 0;
                             OnTowerDestroyed(bestEnemyTower);
                         }
+                    }
+
+                    // NEW: statuses that care about number of attacks get notified here
+                    if (runtime.StatusController != null)
+                    {
+                        runtime.StatusController.NotifyOwnerAttack(runtime);
                     }
 
                     unit.nextAttackTime = Time.time + unitAttackIntervalSeconds;
@@ -252,7 +258,7 @@ namespace Game.Match.Battle
                     if (enemy == null) continue;
 
                     var rt = enemy.GetComponent<UnitRuntime>();
-                    if (rt == null || rt.health <= 0) continue;
+                    if (rt == null || rt.GetFinalHealth() <= 0) continue;
 
                     float distSqr = SqrDistanceToAgent(enemy, pos);
                     if (distSqr < bestDistSqr)
@@ -319,7 +325,7 @@ namespace Game.Match.Battle
                 return;
 
             var rt = unit.GetComponent<UnitRuntime>();
-            if (rt == null || rt.health <= 0)
+            if (rt == null || rt.GetFinalHealth() <= 0)
                 return;
 
             int finalDamage = Mathf.Max(0, damage);
@@ -327,7 +333,9 @@ namespace Game.Match.Battle
                 return;
 
             rt.health -= finalDamage;
-            if (rt.health <= 0)
+
+            // Use final health (base + buffs) to decide death
+            if (rt.GetFinalHealth() <= 0)
             {
                 // Remove from the correct list.
                 if (unit.ownerId == 0)
@@ -379,7 +387,7 @@ namespace Game.Match.Battle
                 if (u == null) continue;
 
                 var rt = u.GetComponent<UnitRuntime>();
-                if (rt != null && rt.health > 0)
+                if (rt != null && rt.GetFinalHealth() > 0)
                     return true;
             }
             return false;

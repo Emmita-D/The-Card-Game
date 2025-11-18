@@ -242,9 +242,10 @@ namespace Game.Match.UI
             foreach (var kv in byAgent) kv.Value.SetSelected(kv.Value == v);
 
             // Use the shared ActionLogCardPreview instead of CardPreviewPanel
-            if (preview != null && v.BoundAgent != null && v.BoundAgent.sourceCard != null)
+            // Use the shared ActionLogCardPreview; pass the live agent so buffs apply
+            if (preview != null && v.BoundAgent != null)
             {
-                preview.ShowCard(v.BoundAgent.sourceCard);
+                preview.ShowUnit(v.BoundAgent);
             }
         }
 

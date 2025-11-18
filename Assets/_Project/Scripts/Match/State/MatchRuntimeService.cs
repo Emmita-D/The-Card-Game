@@ -22,8 +22,11 @@ namespace Game.Match.State
         // allow card phase to dictate exact world position
         public bool useExactPosition;
         public Vector3 exactPosition;
-    }
 
+        // NEW: per-instance buffs coming from CardInstance at placement time
+        public int bonusAttack;
+        public int bonusHealth;
+    }
     /// <summary>
     /// Full description of what each side sends into the battle stage.
     /// </summary>

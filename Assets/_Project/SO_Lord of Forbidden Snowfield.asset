@@ -21,6 +21,13 @@ MonoBehaviour:
   type: 0
   realm: 0
   race: 3
+  spellEffect: 0
+  spellSearchRealmFilter: 0
+  spellBuffAttackAmount: 0
+  spellBuffHealthAmount: 0
+  trapEffect: 0
+  trapDamageAmount: 100
+  trapHpThresholdFraction: 0.5
   sizeW: 3
   sizeH: 3
   manaStars: 8

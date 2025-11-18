@@ -365,6 +365,13 @@ public class CardView : MonoBehaviour
             g.SetActive(true);
         }
     }
+    public void OverrideStats(int attack, int health)
+    {
+        // Do NOT toggle badges active here.
+        // Bind(CardSO) already decides if badges should be visible (units only).
+        if (atkText) atkText.text = attack.ToString();
+        if (hpText) hpText.text = health.ToString();
+    }
 
     string PrettyRace(Race r) => r.ToString().Equals("Vorgco", StringComparison.OrdinalIgnoreCase) ? "Vorg’co" : r.ToString();
 

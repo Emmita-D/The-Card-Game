@@ -19,8 +19,12 @@ MonoBehaviour:
   race: 1
   spellEffect: 3
   spellSearchRealmFilter: 1
-  spellBuffAttackAmount: 2
-  spellBuffHealthAmount: 2
+  spellBuffAttackAmount: 50
+  spellBuffHealthAmount: 50
+  spellBuffLifetimeKind: 3
+  spellBuffDurationSeconds: 0
+  spellBuffAttackCount: 0
+  spellBuffTurnCount: 2
   trapEffect: 0
   trapDamageAmount: 100
   trapHpThresholdFraction: 0.5

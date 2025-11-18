@@ -1,5 +1,7 @@
 ﻿using UnityEngine;
-using Game.Match.Cards;   // CardSO
+using Game.Match.Cards;    // CardSO
+using Game.Match.Battle;   // UnitAgent
+using Game.Match.Units;    // UnitRuntime
 
 namespace Game.Match.Log
 {
@@ -16,12 +18,15 @@ namespace Game.Match.Log
 
         private CardView _currentView;
 
+        /// <summary>
+        /// Show a plain CardSO (used by the action log).
+        /// This shows base stats from the asset.
+        /// </summary>
         public void ShowCard(CardSO card)
         {
             if (panelRoot == null || cardParent == null || cardViewPrefab == null || card == null)
                 return;
 
-            // Show the panel (you control its position/size in the Inspector)
             panelRoot.SetActive(true);
 
             // Destroy previous preview, if any
@@ -36,22 +41,46 @@ namespace Game.Match.Log
             _currentView.transform.localScale = Vector3.one;
             _currentView.transform.localPosition = Vector3.zero;
 
-            // 🔹 DISABLE HOVER / DRAG ON THE PREVIEW INSTANCE ONLY
-            // Use string-based GetComponent so we don’t depend on namespaces.
+            // Disable hover / drag on the preview instance only (by name to avoid extra deps)
             var hoverBehaviour = _currentView.GetComponent("CardHoverFX") as Behaviour;
             if (hoverBehaviour != null)
-            {
                 hoverBehaviour.enabled = false;
-            }
 
             var dragBehaviour = _currentView.GetComponent("DraggableCard") as Behaviour;
             if (dragBehaviour != null)
-            {
                 dragBehaviour.enabled = false;
+
+            // Use your existing CardView logic (stats, badges, realm frame, etc.)
+            _currentView.Bind(card);
+        }
+
+        /// <summary>
+        /// Show a live unit from the battlefield:
+        /// - Uses sourceCard for art/frame/text
+        /// - Uses UnitRuntime.GetFinalAttack/Health for buffed stats
+        /// </summary>
+        public void ShowUnit(UnitAgent agent)
+        {
+            if (agent == null || agent.sourceCard == null)
+            {
+                Hide();
+                return;
             }
 
-            // This uses your existing CardView logic (stats, badges, realm frame, etc.).
-            _currentView.Bind(card);
+            // First build the normal preview from the CardSO
+            ShowCard(agent.sourceCard);
+
+            // Then override ATK/HP using the runtime (buffed) values
+            if (_currentView != null)
+            {
+                var runtime = agent.GetComponent<UnitRuntime>();
+                if (runtime != null)
+                {
+                    int finalAtk = runtime.GetFinalAttack();
+                    int finalHp = runtime.GetFinalHealth();
+                    _currentView.OverrideStats(finalAtk, finalHp);
+                }
+            }
         }
 
         public void Hide()

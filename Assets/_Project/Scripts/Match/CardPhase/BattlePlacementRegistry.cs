@@ -1,7 +1,7 @@
-using Game.Match.Cards;
-using Game.Match.State; // BattleUnitSeed
 using System.Collections.Generic;
 using UnityEngine;
+using Game.Match.Cards;
+using Game.Match.State; // BattleUnitSeed
 
 namespace Game.Match.CardPhase
 {
@@ -14,17 +14,22 @@ namespace Game.Match.CardPhase
     {
         public static BattlePlacementRegistry Instance { get; private set; }
 
-
         [System.Serializable]
         public struct Entry
         {
             public CardSO card;
             public int ownerId;        // 0 = local, 1 = remote (future)
             public Vector3 worldPos;   // exact position on the board
+
+            // NEW: per-instance stat bonuses relative to CardSO base stats
+            public int bonusAttack;
+            public int bonusHealth;
         }
 
-        private readonly List<Entry> _entries = new();
+        private readonly List<Entry> _entries = new List<Entry>();
 
+        // Optional board-center hint used elsewhere (kept from your original file).
+        private float? _localBoardCenterX;
 
         private void Awake()
         {
@@ -33,13 +38,9 @@ namespace Game.Match.CardPhase
                 Destroy(gameObject);
                 return;
             }
+
             Instance = this;
         }
-
-        /// <summary>
-        /// Optional board-center hint used elsewhere (kept from your original file).
-        /// </summary>
-        private float? _localBoardCenterX;
 
         public void SetLocalBoardCenterX(float centerX)
         {
@@ -48,7 +49,12 @@ namespace Game.Match.CardPhase
 
         public bool TryGetLocalBoardCenterX(out float centerX)
         {
-            if (_localBoardCenterX.HasValue) { centerX = _localBoardCenterX.Value; return true; }
+            if (_localBoardCenterX.HasValue)
+            {
+                centerX = _localBoardCenterX.Value;
+                return true;
+            }
+
             centerX = 0f;
             return false;
         }
@@ -74,11 +80,13 @@ namespace Game.Match.CardPhase
                 if ((e.worldPos - worldPos).sqrMagnitude > eps2) continue;
                 return true;
             }
+
             return false;
         }
 
         /// <summary>
         /// Register a placed/survived unit. De-duplicates by (card ref, ownerId, ~worldPos).
+        /// This overload assumes NO extra buffs (CardSO stats are the baseline).
         /// </summary>
         public void Register(CardSO card, Vector3 worldPos, int ownerId)
         {
@@ -92,10 +100,51 @@ namespace Game.Match.CardPhase
             {
                 card = card,
                 ownerId = ownerId,
-                worldPos = worldPos
+                worldPos = worldPos,
+                bonusAttack = 0,
+                bonusHealth = 0
             });
 
             Debug.Log($"[BattlePlacementRegistry] Registered card={card.name}, owner={ownerId}, pos={worldPos}");
+        }
+
+        /// <summary>
+        /// Register a placed unit *from hand*, preserving its per-instance buffs.
+        /// Uses CardInstance to compute bonuses relative to CardSO.
+        /// </summary>
+        public void Register(CardInstance cardInstance, Vector3 worldPos, int ownerId)
+        {
+            if (cardInstance == null || cardInstance.data == null)
+                return;
+
+            var so = cardInstance.data;
+
+            // De-dup based on the underlying CardSO + position + owner
+            if (Contains(so, worldPos, ownerId))
+                return;
+
+            int baseAtk = so.attack;
+            int baseHp = so.health;
+
+            int finalAtk = cardInstance.GetFinalAttack();
+            int finalHp = cardInstance.GetFinalHealth();
+
+            int atkBonus = finalAtk - baseAtk;
+            int hpBonus = finalHp - baseHp;
+
+            _entries.Add(new Entry
+            {
+                card = so,
+                ownerId = ownerId,
+                worldPos = worldPos,
+                bonusAttack = atkBonus,
+                bonusHealth = hpBonus
+            });
+
+            Debug.Log(
+                $"[BattlePlacementRegistry] Registered buffed card={so.name}, owner={ownerId}, pos={worldPos}, " +
+                $"bonus={atkBonus}/{hpBonus}"
+            );
         }
 
         /// <summary>
@@ -118,7 +167,9 @@ namespace Game.Match.CardPhase
                     laneIndex = 0,
                     spawnOffset = 0f,
                     useExactPosition = true,
-                    exactPosition = e.worldPos
+                    exactPosition = e.worldPos,
+                    bonusAttack = e.bonusAttack,
+                    bonusHealth = e.bonusHealth
                 });
             }
 

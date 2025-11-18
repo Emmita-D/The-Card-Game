@@ -1,6 +1,7 @@
-using UnityEngine;
-using Game.Match.Cards;
 using Game.Core;
+using Game.Match.Cards;
+using Game.Match.Status;   // StatusEffect, StatModifier, GroundedStatus
+using UnityEngine;
 
 namespace Game.Match.Units
 {
@@ -29,6 +30,15 @@ namespace Game.Match.Units
 
         [Tooltip("True if this unit behaves as a diving flier (set from CardSO).")]
         public bool isDiveFlier;
+
+        [Header("Status / Buffs")]
+        public UnitStatusController StatusController { get; private set; }
+
+        private void Awake()
+        {
+            // Initialize per-unit status container
+            StatusController = new UnitStatusController();
+        }
 
         // Simple visual tint so you can tell Empyrean/Infernum at a glance
         public void InitFrom(CardSO so)
@@ -68,6 +78,95 @@ namespace Game.Match.Units
             }
 
             gameObject.name = $"{so.cardName}_Unit";
+        }
+
+        private void Update()
+        {
+            if (StatusController != null)
+            {
+                StatusController.Update(this, Time.deltaTime);
+            }
+
+            // Recompute height layer each frame based on movement type + statuses
+            UpdateHeightLayerFromStatus();
+        }
+
+        /// <summary>
+        /// Returns true if this unit should be treated as flying RIGHT NOW,
+        /// taking into account any active GroundedStatus.
+        /// </summary>
+        public bool IsFlying
+        {
+            get
+            {
+                // If any active GroundedStatus is present, treat as not flying.
+                if (StatusController != null)
+                {
+                    foreach (var s in StatusController.GetAll())
+                    {
+                        var grounded = s as GroundedStatus;
+                        if (grounded != null && grounded.IsActive)
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                return movementType == MovementType.Flying;
+            }
+        }
+
+        /// <summary>
+        /// Compute the effective height layer from movement type + statuses
+        /// and write it into heightLayer for any code that reads it directly.
+        /// </summary>
+        private void UpdateHeightLayerFromStatus()
+        {
+            // Base layer from movement type
+            var baseLayer = (movementType == MovementType.Flying)
+                ? HeightLayer.Air
+                : HeightLayer.Ground;
+
+            bool groundedByStatus = false;
+
+            if (StatusController != null)
+            {
+                foreach (var s in StatusController.GetAll())
+                {
+                    var grounded = s as GroundedStatus;
+                    if (grounded != null && grounded.IsActive)
+                    {
+                        groundedByStatus = true;
+                        break;
+                    }
+                }
+            }
+
+            heightLayer = groundedByStatus ? HeightLayer.Ground : baseLayer;
+        }
+
+        // ----- Final stat getters (base runtime stats + status modifiers) -----
+
+        public int GetFinalAttack()
+        {
+            if (StatusController == null)
+            {
+                return attack;
+            }
+
+            StatModifier total = StatusController.GetTotalModifiers();
+            return attack + total.attackBonus;
+        }
+
+        public int GetFinalHealth()
+        {
+            if (StatusController == null)
+            {
+                return health;
+            }
+
+            StatModifier total = StatusController.GetTotalModifiers();
+            return health + total.healthBonus;
         }
     }
 }

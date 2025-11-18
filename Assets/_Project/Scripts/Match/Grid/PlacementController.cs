@@ -50,7 +50,7 @@ namespace Game.Match.Grid
             var registry = BattlePlacementRegistry.Instance;
             if (registry != null)
             {
-                registry.Register(card.data, snappedWorld, ownerId: 0); // 0 = local player
+                registry.Register(card, snappedWorld, ownerId: 0); // 0 = local player
                 Debug.Log($"[PlacementController] Placed card {card.data.name} at tile {t}, world {snappedWorld}");
             }
             else

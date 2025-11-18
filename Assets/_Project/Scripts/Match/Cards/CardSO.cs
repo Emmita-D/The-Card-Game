@@ -11,12 +11,19 @@ namespace Game.Match.Cards
         RefillManaToMax = 2,
         BuffRandomHandUnitSimple = 3
     }
-
     // v1 trap effects.
     public enum TrapEffectKind
     {
         None = 0,
-        TowerBelowHalf_DamageRandomEnemyUnit = 1
+        TowerBelowHalf_DamageRandomEnemyUnit = 1,
+        GroundEnemyFlierForTime = 2   // NEW: grounds a random enemy flier for some seconds
+    }
+    public enum BuffLifetimeKind
+    {
+        Permanent = 0,
+        TimeSeconds = 1,
+        AttackCount = 2,
+        TurnCount = 3
     }
 
     [CreateAssetMenu(fileName = "NewCard", menuName = "Game/Cards/Card", order = 0)]
@@ -44,6 +51,12 @@ namespace Game.Match.Cards
         [Tooltip("Health bonus for simple buff spells that target a unit in hand.")]
         public int spellBuffHealthAmount = 2;
 
+        [Header("Spell Buff Lifetime")]
+        public BuffLifetimeKind spellBuffLifetimeKind = BuffLifetimeKind.Permanent;
+        public float spellBuffDurationSeconds = 0f;
+        public int spellBuffAttackCount = 0;
+        public int spellBuffTurnCount = 0;
+
         [Header("Trap (if Trap)")]
         [Tooltip("Simple v1 effect used by TrapService for traps.")]
         public TrapEffectKind trapEffect = TrapEffectKind.None;
@@ -53,6 +66,9 @@ namespace Game.Match.Cards
 
         [Tooltip("Fraction of tower max HP below which this trap triggers (e.g., 0.5 = 50%).")]
         [Range(0f, 1f)] public float trapHpThresholdFraction = 0.5f;
+
+        [Tooltip("Duration in seconds for GroundEnemyFlierForTime traps (e.g., 10f).")]
+        [Min(0f)] public float trapGroundDurationSeconds = 10f;
 
         [Header("Footprint (tiles)")]
         [Range(1, 4)] public int sizeW = 1;

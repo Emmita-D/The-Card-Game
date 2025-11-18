@@ -1,12 +1,15 @@
-﻿using System;
+﻿using Game.Core;
+using Game.Match.Battle;     // CardPhaseBattleLauncher
+using Game.Match.Cards;
+using Game.Match.Graveyard;
+using Game.Match.Log;
+using Game.Match.Mana;        // ManaPool (Slots/Current/SetSlots/SetCurrent)
+using Game.Match.Status;
+using NUnit.Framework.Internal;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Game.Match.Cards;
-using Game.Match.Mana;        // ManaPool (Slots/Current/SetSlots/SetCurrent)
-using Game.Match.Graveyard;
-using Game.Match.Battle;     // CardPhaseBattleLauncher
-using Game.Match.Log;
-using Game.Core;
+
 
 namespace Game.Match.State
 {
@@ -160,6 +163,10 @@ namespace Game.Match.State
 
             int drew = hand.Count - beforeHand;
 
+            // 🔹 Turn-based buffs on cards in hand:
+            // For now we assume local player is ownerId = 0.
+            AdvanceTurnOnHandForOwner(0);
+
             Debug.Log(
                 $"[Turn] Start → index={turnIndex}, mana={mana?.Current}/{mana?.Slots}, " +
                 $"drew={drew}, hand={hand.Count}, deck={deck.Count}"
@@ -168,7 +175,6 @@ namespace Game.Match.State
             PushHandToView();
             OnTurnStarted?.Invoke(turnIndex);
         }
-
         /// <summary>Remove a card from the hand without sending it to graveyard.</summary>
         public void RemoveFromHand(CardInstance ci)
         {
@@ -410,6 +416,27 @@ namespace Game.Match.State
             }
         }
 
+        private void AdvanceTurnOnHandForOwner(int ownerId)
+        {
+            if (hand == null || hand.Count == 0)
+                return;
+
+            for (int i = 0; i < hand.Count; i++)
+            {
+                var ci = hand[i];
+                if (ci == null)
+                    continue;
+
+                if (ci.ownerId != ownerId)
+                    continue;
+
+                ci.AdvanceTurn();
+            }
+
+            // Hand UI will also get refreshed by the PushHandToView() call in StartTurn,
+            // but this ensures any immediate changes are reflected if you ever call this elsewhere.
+            PushHandToView();
+        }
         public void ResolveBuffHandSpell(CardSO spell, int ownerIdForEffect)
         {
             if (spell == null)
@@ -459,14 +486,44 @@ namespace Game.Match.State
             int atkBonus = spell.spellBuffAttackAmount;
             int hpBonus = spell.spellBuffHealthAmount;
 
-            // v1: directly modify the CardSO stats.
-            if (chosenData != null)
+            // 🔹 NEW: build the buff according to lifetime config on the CardSO
+            StatBuffStatus buffStatus;
+
+            switch (spell.spellBuffLifetimeKind)
             {
-                chosenData.attack += atkBonus;
-                chosenData.health += hpBonus;
+                case BuffLifetimeKind.TimeSeconds:
+                    {
+                        float seconds = Mathf.Max(0.01f, spell.spellBuffDurationSeconds);
+                        buffStatus = new StatBuffStatus(atkBonus, hpBonus, seconds);
+                        break;
+                    }
+
+                case BuffLifetimeKind.AttackCount:
+                    {
+                        int attackCount = Mathf.Max(1, spell.spellBuffAttackCount);
+                        buffStatus = new StatBuffStatus(atkBonus, hpBonus, attackCount);
+                        break;
+                    }
+
+                case BuffLifetimeKind.TurnCount:
+                    {
+                        int turnCount = Mathf.Max(1, spell.spellBuffTurnCount);
+                        buffStatus = new StatBuffStatus(atkBonus, hpBonus, turnCount, true);
+                        break;
+                    }
+
+                case BuffLifetimeKind.Permanent:
+                default:
+                    {
+                        buffStatus = new StatBuffStatus(atkBonus, hpBonus);
+                        break;
+                    }
             }
 
-            // Log it.
+            // Apply per-instance status instead of mutating CardSO
+            chosen.AddStatus(buffStatus);
+
+            // Log a detailed entry mentioning which card was buffed
             if (logger != null && chosenData != null)
             {
                 string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
@@ -474,8 +531,12 @@ namespace Game.Match.State
                     ? chosenData.name
                     : chosenData.cardName;
 
-                string msg = $"Cast {spellName}: {targetName} in your hand gains " +
-                             $"+{atkBonus} ATK / +{hpBonus} HP.";
+                int finalAtk = chosen.GetFinalAttack();
+                int finalHp = chosen.GetFinalHealth();
+
+                string msg =
+                    $"Cast {spellName}, buffing {targetName} in your hand " +
+                    $"+{atkBonus} ATK / +{hpBonus} HP → now {finalAtk}/{finalHp}.";
 
                 logger.CardLocal(
                     msg,
@@ -487,7 +548,6 @@ namespace Game.Match.State
             // Refresh hand UI so updated stats show up on the card.
             PushHandToView();
         }
-
 
         private void PushHandToView()
         {

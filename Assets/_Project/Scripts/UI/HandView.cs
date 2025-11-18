@@ -1,7 +1,7 @@
+using Game.Match.Cards;   // CardSO, CardInstance, CardType
+using Game.Match.Mana;    // ManaPool
 using System.Collections.Generic;
 using UnityEngine;
-using Game.Match.Cards;   // CardSO, CardInstance
-using Game.Match.Mana;    // ManaPool
 
 public class HandView : MonoBehaviour
 {
@@ -10,45 +10,87 @@ public class HandView : MonoBehaviour
     [SerializeField] private CardView cardViewPrefab;
 
     [Header("Scene References")]
-    [SerializeField] private ManaPool manaPool;    // <-- drag your ManaRoot’s ManaPool here
+    [SerializeField] private ManaPool manaPool;
+
+    private readonly List<CardView> activeCards = new List<CardView>();
 
     public void SetHand(List<CardInstance> hand)
     {
-        // clear old
-        for (int i = slotParent.childCount - 1; i >= 0; i--)
-            Destroy(slotParent.GetChild(i).gameObject);
-
-        // spawn one CardView per card
-        foreach (var ci in hand)
+        // Clear old cards in the slot parent
+        if (slotParent != null)
         {
-            var view = Instantiate(cardViewPrefab, slotParent);
+            for (int i = slotParent.childCount - 1; i >= 0; i--)
+            {
+                var child = slotParent.GetChild(i);
+                if (child != null)
+                    Destroy(child.gameObject);
+            }
+        }
+
+        activeCards.Clear();
+
+        if (hand == null || hand.Count == 0)
+        {
+            var emptyFan = GetComponentInChildren<FannedHandLayout>();
+            if (emptyFan != null)
+                emptyFan.RebuildImmediate();
+            return;
+        }
+
+        if (manaPool == null)
+            manaPool = FindObjectOfType<ManaPool>();
+
+        // Build card views for each card in hand
+        for (int i = 0; i < hand.Count; i++)
+        {
+            CardInstance ci = hand[i];
+            if (ci == null || ci.data == null)
+                continue;
+
+            // Instantiate card view
+            CardView view = Instantiate(cardViewPrefab, slotParent);
             view.name = $"Card_{ci.data.cardName}";
+
+            // 1) Normal SO-based binding (frame, art, text, etc.)
             view.Bind(ci.data);
 
-            // wire components
+            // 2) Override stats using per-instance buffed values
+            int finalAtk = ci.GetFinalAttack();
+            int finalHp = ci.GetFinalHealth();
+            view.OverrideStats(finalAtk, finalHp);
+
+            activeCards.Add(view);
+
+            // Draggable behaviour
             var drag = view.GetComponent<DraggableCard>();
             if (drag != null)
             {
                 drag.instance = ci;
-                if (manaPool == null) manaPool = FindObjectOfType<ManaPool>();
-                if (manaPool != null) drag.SetManaPool(manaPool);
+                if (manaPool != null)
+                    drag.SetManaPool(manaPool);
             }
 
+            // Affordability behaviour
             var afford = view.GetComponent<CardAffordability>();
             if (afford != null && manaPool != null)
                 afford.SetPool(manaPool);
         }
 
-        // optional: rebuild fan immediately if present
+        // Rebuild fan layout if present
         var fan = GetComponentInChildren<FannedHandLayout>();
-        if (fan) fan.RebuildImmediate();
+        if (fan != null)
+            fan.RebuildImmediate();
     }
 
-    // convenience for testing from CardSOs
+    // Convenience for testing directly from CardSOs in editor
     public void SetHandFromSOs(List<CardSO> cards, int ownerId = 0)
     {
         var list = new List<CardInstance>(cards.Count);
-        foreach (var so in cards) list.Add(new CardInstance(so, ownerId));
+        foreach (var so in cards)
+        {
+            if (so == null) continue;
+            list.Add(new CardInstance(so, ownerId));
+        }
         SetHand(list);
     }
 }

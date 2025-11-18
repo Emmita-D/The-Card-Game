@@ -260,7 +260,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                 }
 
                 reg.SetLocalBoardCenterX(centerX);        // <- patched line
-                reg.Register(so, center, owner);
+                reg.Register(instance, center, owner);
             }
             else
             {
