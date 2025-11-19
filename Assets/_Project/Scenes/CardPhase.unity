@@ -3934,6 +3934,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
   - {fileID: 11400000, guid: fa297a664ad34f246884f1efbfaadfef, type: 2}
   - {fileID: 11400000, guid: fa297a664ad34f246884f1efbfaadfef, type: 2}
+  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
+  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
+  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0

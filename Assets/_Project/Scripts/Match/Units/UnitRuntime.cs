@@ -168,5 +168,70 @@ namespace Game.Match.Units
             StatModifier total = StatusController.GetTotalModifiers();
             return health + total.healthBonus;
         }
+
+        /// <summary>
+        /// Returns the final movement speed for this unit given a base value,
+        /// taking into account any active moveSpeedMultiplier from statuses.
+        /// </summary>
+        public float GetFinalMoveSpeed(float baseMoveSpeed)
+        {
+            if (StatusController == null)
+            {
+                return baseMoveSpeed;
+            }
+
+            StatModifier total = StatusController.GetTotalModifiers();
+
+            // Default to 1 if no status touched speed or something gave 0/negative.
+            float multiplier = total.moveSpeedMultiplier;
+            if (multiplier <= 0f)
+            {
+                multiplier = 1f;
+            }
+
+            return baseMoveSpeed * multiplier;
+        }
+
+        /// <summary>
+        /// Returns the combined damage-dealt multiplier from all active statuses.
+        /// (Used by CombatResolver when computing outgoing damage.)
+        /// </summary>
+        public float GetDamageDealtMultiplier()
+        {
+            if (StatusController == null)
+            {
+                return 1f;
+            }
+
+            StatModifier total = StatusController.GetTotalModifiers();
+            float multiplier = total.damageDealtMultiplier;
+            if (multiplier <= 0f)
+            {
+                multiplier = 1f;
+            }
+
+            return multiplier;
+        }
+
+        /// <summary>
+        /// Returns the combined damage-taken multiplier from all active statuses.
+        /// (Used by CombatResolver when computing incoming damage.)
+        /// </summary>
+        public float GetDamageTakenMultiplier()
+        {
+            if (StatusController == null)
+            {
+                return 1f;
+            }
+
+            StatModifier total = StatusController.GetTotalModifiers();
+            float multiplier = total.damageTakenMultiplier;
+            if (multiplier <= 0f)
+            {
+                multiplier = 1f;
+            }
+
+            return multiplier;
+        }
     }
 }

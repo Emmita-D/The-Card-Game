@@ -14,9 +14,25 @@ namespace Game.Match.Status
             if (status == null)
                 return;
 
+            // GroundedStatus: accumulate duration instead of stacking multiple instances.
+            var newGrounded = status as GroundedStatus;
+            if (newGrounded != null)
+            {
+                for (int i = 0; i < activeStatuses.Count; i++)
+                {
+                    var existingGrounded = activeStatuses[i] as GroundedStatus;
+                    if (existingGrounded != null && !existingGrounded.IsExpired)
+                    {
+                        // 👇 Key line: add the new grounded time to the existing one
+                        existingGrounded.AddDuration(newGrounded.RemainingDuration);
+                        return; // do not add a new instance
+                    }
+                }
+            }
+
+            // Default behaviour: just add the status.
             activeStatuses.Add(status);
         }
-
         public StatModifier GetTotalModifiers()
         {
             StatModifier total = StatModifier.None;
@@ -74,7 +90,7 @@ namespace Game.Match.Status
             CleanupExpired();
         }
 
-        // 🔹 NEW: called when a "turn" advances for this unit (for turn-limited buffs).
+        // Called when a "turn" advances for this unit (for turn-limited buffs).
         public void NotifyTurnAdvanced(UnitRuntime owner)
         {
             if (activeStatuses.Count == 0)

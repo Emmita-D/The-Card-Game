@@ -362,7 +362,14 @@ namespace Game.Match.Battle
                 _currentTarget = null;
             }
 
-            transform.position += desiredDir * (moveSpeed * Time.deltaTime);
+            // ---- NEW: use status-aware final move speed ----
+            float speedThisFrame = moveSpeed;
+            if (_runtime != null)
+            {
+                speedThisFrame = _runtime.GetFinalMoveSpeed(moveSpeed);
+            }
+
+            transform.position += desiredDir * (speedThisFrame * Time.deltaTime);
 
             // Keep moveDirection in sync for any systems that read it.
             moveDirection = desiredDir;

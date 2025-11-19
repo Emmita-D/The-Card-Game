@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using Game.Core;   // CardType, Realm, Race, AttackMode, MovementType, SizeClass
 
 namespace Game.Match.Cards
@@ -14,9 +14,10 @@ namespace Game.Match.Cards
     // v1 trap effects.
     public enum TrapEffectKind
     {
-        None = 0,
+        None = 0,                                    // ← bring this back / keep it
         TowerBelowHalf_DamageRandomEnemyUnit = 1,
-        GroundEnemyFlierForTime = 2   // NEW: grounds a random enemy flier for some seconds
+        GroundEnemyFlierForTime = 2,
+        Outnumbered_SlowEnemyUnitsForTime = 3       // ← our new trap
     }
     public enum BuffLifetimeKind
     {
@@ -70,6 +71,11 @@ namespace Game.Match.Cards
         [Tooltip("Duration in seconds for GroundEnemyFlierForTime traps (e.g., 10f).")]
         [Min(0f)] public float trapGroundDurationSeconds = 10f;
 
+        [Tooltip("Outnumbered slow trap tuning")]
+        [Range(0f, 1f)] 
+        public float trapSlowPercent = 0.40f;          // 0.4 = 40% slow
+        public float trapSlowDurationSeconds = 6f;     // how long the slow lasts
+
         [Header("Footprint (tiles)")]
         [Range(1, 4)] public int sizeW = 1;
         [Range(1, 4)] public int sizeH = 1;
@@ -90,7 +96,7 @@ namespace Game.Match.Cards
         [Tooltip("How far (in multiples of attack range) this unit will look for targets to chase.")]
         [Min(0f)] public float chaseRangeMultiplier = 3f;
 
-        [Tooltip("Dot threshold for what counts as 'in front'. 1 = dead ahead, 0 = full 180� front arc.")]
+        [Tooltip("Dot threshold for what counts as 'in front'. 1 = dead ahead, 0 = full 180° front arc.")]
         [Range(-1f, 1f)] public float frontArcDotThreshold = 0.2f;
 
         [Header("Attack permissions (optional nerfs)")]

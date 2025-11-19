@@ -197,6 +197,10 @@ namespace Game.Match.Battle
                 // For now, check for both owners so the system is future-proof.
                 trapService.TryTriggerGroundEnemyFlierTrapsForOwner(0);
                 trapService.TryTriggerGroundEnemyFlierTrapsForOwner(1);
+
+                // Also resolve "outnumbered → slow enemy units" traps.
+                trapService.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(0);
+                trapService.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(1);
             }
 
             // Edge case – empty battle (no units spawned on either side)

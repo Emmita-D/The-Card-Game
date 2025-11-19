@@ -6,7 +6,7 @@ using Game.Match.Units;
 using Game.Match.Graveyard;
 using Game.Match.Log;
 using Game.Core;
-using Game.Match.Status;   // GroundedStatus
+using Game.Match.Status;   // GroundedStatus, SlowStatus
 
 namespace Game.Match.Traps
 {
@@ -14,8 +14,8 @@ namespace Game.Match.Traps
     /// Tracks armed traps across CardPhase and BattleStage and resolves them
     /// when their trigger conditions are met.
     ///
-    /// Place this on a GameObject that persists across phases (e.g. a Match root / Boot scene)
-    /// so that traps set in CardPhase still exist when you enter BattleStage.
+    /// This lives on a DontDestroyOnLoad object so that traps set in CardPhase
+    /// are still present when loading the BattleStage scene.
     /// </summary>
     public class TrapService : MonoBehaviour
     {
@@ -163,7 +163,7 @@ namespace Game.Match.Traps
                 if (logger != null)
                 {
                     logger.SystemCard(
-                        $"Trap {trapName} triggered when the tower dropped below 50% HP, " +
+                        $"Trap {trapName} triggered when the tower dropped below its threshold, " +
                         $"but there were no enemy units to hit.",
                         trap.card.artSprite,
                         trap.card
@@ -200,7 +200,7 @@ namespace Game.Match.Traps
 
                 logger.SystemCard(
                     $"Trap {trapName} triggered: dealt {dmg} damage to {targetName} " +
-                    $"when the tower dropped below 50% HP.",
+                    $"when the tower dropped below its HP threshold.",
                     trap.card.artSprite,
                     trap.card
                 );
@@ -213,7 +213,6 @@ namespace Game.Match.Traps
         }
 
         /// <summary>
-        /// NEW PUBLIC API:
         /// "If the opponent controls any flying unit, then the trap triggers."
         ///
         /// Call this from your Battle start logic (and/or other events)
@@ -238,12 +237,12 @@ namespace Game.Match.Traps
                 return;
             }
 
-            // Enemy units relative to the trap owner (likely IReadOnlyList<UnitAgent>).
+            // Enemy units relative to the trap owner (IReadOnlyList<UnitAgent>).
             var enemyUnitsReadOnly = (ownerId == 0)
                 ? resolver.RemoteUnits
                 : resolver.LocalUnits;
 
-            // Convert to a mutable List<UnitAgent> so we can pass it to TryResolveOneGroundEnemyFlierTrap
+            // Convert to a mutable List<UnitAgent> so we can pass it to helper.
             List<UnitAgent> enemyUnits = null;
             if (enemyUnitsReadOnly != null)
             {
@@ -357,6 +356,197 @@ namespace Game.Match.Traps
             }
 
             // Mark trap consumed and send it to graveyard.
+            trap.consumed = true;
+
+            var gy = GraveyardService.Instance;
+            if (gy != null)
+                gy.Add(trap.ownerId, trap.card);
+        }
+
+        /// <summary>
+        /// NEW PUBLIC API:
+        /// "If the opponent controls more units than you do, apply 40% slow
+        /// to all enemy units for this turn (implemented as a fixed-time slow)."
+        ///
+        /// Call this from your Battle start logic (and/or other events)
+        /// once per owner. Example:
+        ///
+        ///     TrapService.Instance?.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(0);
+        ///     TrapService.Instance?.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(1);
+        ///
+        /// This evaluates:
+        ///  - all armed Outnumbered_SlowEnemyUnitsForTime traps for that owner
+        ///  - current alive units for both players
+        /// If the opponent controls more alive units than you, all of their
+        /// alive units receive a SlowStatus (40% slow for a fixed duration),
+        /// and the trap is consumed.
+        /// If not, the trap STAYS armed (not consumed).
+        /// </summary>
+        public void TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(int ownerId)
+        {
+            var resolver = CombatResolver.Instance;
+            if (resolver == null)
+            {
+                Debug.LogWarning("[TrapService] No CombatResolver found when trying to trigger Outnumbered_SlowEnemyUnitsForTime traps.");
+                return;
+            }
+
+            // My units / enemy units relative to the trap owner.
+            var myUnitsReadOnly = (ownerId == 0)
+                ? resolver.LocalUnits
+                : resolver.RemoteUnits;
+
+            var enemyUnitsReadOnly = (ownerId == 0)
+                ? resolver.RemoteUnits
+                : resolver.LocalUnits;
+
+            List<UnitAgent> myUnits = null;
+            if (myUnitsReadOnly != null)
+                myUnits = new List<UnitAgent>(myUnitsReadOnly);
+
+            List<UnitAgent> enemyUnits = null;
+            if (enemyUnitsReadOnly != null)
+                enemyUnits = new List<UnitAgent>(enemyUnitsReadOnly);
+
+            // Build lists of alive units only.
+            var myAlive = new List<UnitAgent>();
+            if (myUnits != null)
+            {
+                for (int i = 0; i < myUnits.Count; i++)
+                {
+                    var unit = myUnits[i];
+                    if (unit == null)
+                        continue;
+
+                    var rt = unit.GetComponent<UnitRuntime>();
+                    if (rt == null || rt.health <= 0)
+                        continue;
+
+                    myAlive.Add(unit);
+                }
+            }
+
+            var enemyAlive = new List<UnitAgent>();
+            if (enemyUnits != null)
+            {
+                for (int i = 0; i < enemyUnits.Count; i++)
+                {
+                    var unit = enemyUnits[i];
+                    if (unit == null)
+                        continue;
+
+                    var rt = unit.GetComponent<UnitRuntime>();
+                    if (rt == null || rt.health <= 0)
+                        continue;
+
+                    enemyAlive.Add(unit);
+                }
+            }
+
+            int myCount = myAlive.Count;
+            int enemyCount = enemyAlive.Count;
+
+            // Condition: opponent must control strictly more units than you do.
+            if (enemyCount <= myCount || enemyCount == 0)
+            {
+                // Condition not met → do nothing, keep traps armed.
+                return;
+            }
+
+            // Collect all relevant traps for this owner.
+            var outnumberedTraps = new List<ArmedTrap>();
+            foreach (var trap in _armedTraps)
+            {
+                if (trap.consumed || trap.card == null)
+                    continue;
+
+                if (trap.ownerId != ownerId)
+                    continue;
+
+                if (trap.card.trapEffect != TrapEffectKind.Outnumbered_SlowEnemyUnitsForTime)
+                    continue;
+
+                outnumberedTraps.Add(trap);
+            }
+
+            if (outnumberedTraps.Count == 0)
+                return;
+
+            foreach (var trap in outnumberedTraps)
+            {
+                TryResolveOneOutnumberedSlowEnemyUnitsTrap(trap, enemyAlive);
+            }
+
+            // Remove only traps that were actually consumed.
+            _armedTraps.RemoveAll(t => t.consumed || t.card == null);
+        }
+
+        /// <summary>
+        /// Internal helper for the Outnumbered_SlowEnemyUnitsForTime trap.
+        /// At this point we already know the opponent has more alive units.
+        /// We simply apply a 40% slow to all enemy units for a fixed duration
+        /// and consume the trap.
+        /// </summary>
+        private void TryResolveOneOutnumberedSlowEnemyUnitsTrap(ArmedTrap trap, List<UnitAgent> enemyAlive)
+        {
+            if (trap == null || trap.card == null)
+                return;
+
+            var logger = ActionLogService.Instance;
+            string trapName = string.IsNullOrEmpty(trap.card.cardName)
+                ? trap.card.name
+                : trap.card.cardName;
+
+            if (enemyAlive == null || enemyAlive.Count == 0)
+            {
+                // Should be rare, since we checked counts earlier, but be safe.
+                if (logger != null)
+                {
+                    logger.SystemCard(
+                        $"Trap {trapName} triggered (outnumbered condition met), " +
+                        $"but there were no enemy units to slow.",
+                        trap.card.artSprite,
+                        trap.card
+                    );
+                }
+
+                // Still consume the trap and send to graveyard as "fizzled".
+                trap.consumed = true;
+                var gyNone = GraveyardService.Instance;
+                if (gyNone != null)
+                    gyNone.Add(trap.ownerId, trap.card);
+
+                return;
+            }
+
+            // Use per-card tuning for the slow effect (from CardSO).
+            float slowPercent = Mathf.Clamp01(trap.card.trapSlowPercent);
+            // Safety: at least a tiny duration so the status has meaning.
+            float slowDuration = Mathf.Max(0.01f, trap.card.trapSlowDurationSeconds);
+
+            foreach (var unit in enemyAlive)
+            {
+                if (unit == null)
+                    continue;
+
+                var rt = unit.GetComponent<UnitRuntime>();
+                if (rt == null || rt.StatusController == null)
+                    continue;
+
+                rt.StatusController.AddStatus(new SlowStatus(slowDuration, slowPercent));
+            }
+
+            if (logger != null)
+            {
+                logger.SystemCard(
+                    $"Trap {trapName} triggered: slowed all enemy units by {slowPercent * 100f:0.#}% " +
+                    $"for {slowDuration:0.#} seconds because your opponent controlled more units than you.",
+                    trap.card.artSprite,
+                    trap.card
+                );
+            }
+
+            // Consume the trap and send it to graveyard.
             trap.consumed = true;
 
             var gy = GraveyardService.Instance;
