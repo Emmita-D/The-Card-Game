@@ -1361,6 +1361,7 @@ GameObject:
   - component: {fileID: 347640463}
   - component: {fileID: 347640468}
   - component: {fileID: 347640467}
+  - component: {fileID: 347640469}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1486,6 +1487,22 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!114 &347640469
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 347640462}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c49b4cc203aa6414fae5c798d1d0e7d6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.EventSystems.PhysicsRaycaster
+  m_EventMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_MaxRayIntersections: 0
 --- !u!1 &412263324
 GameObject:
   m_ObjectHideFlags: 0
@@ -3007,6 +3024,50 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1187519783}
   m_CullTransparentMesh: 1
+--- !u!1 &1193467118
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1193467120}
+  - component: {fileID: 1193467119}
+  m_Layer: 0
+  m_Name: CardPhaseTargeting
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1193467119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1193467118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a43267a062c4b7446a61b8e979f7ccdb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.CardPhase.CardPhaseTargetSelectionController
+--- !u!4 &1193467120
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1193467118}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -385.88367, y: 346.01187, z: -262.6445}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1195458263
 GameObject:
   m_ObjectHideFlags: 0
@@ -3928,15 +3989,18 @@ MonoBehaviour:
   manaPools:
   - {fileID: 670206535}
   deckList:
-  - {fileID: 11400000, guid: fa297a664ad34f246884f1efbfaadfef, type: 2}
+  - {fileID: 11400000, guid: 2688b861af392eb4b9d23ff8bb3b299a, type: 2}
+  - {fileID: 11400000, guid: 2688b861af392eb4b9d23ff8bb3b299a, type: 2}
+  - {fileID: 11400000, guid: b0029ee4768698c49960b526da0e097b, type: 2}
+  - {fileID: 11400000, guid: 92fc39899120ab04e9c946221f0f4bc0, type: 2}
+  - {fileID: 11400000, guid: 92fc39899120ab04e9c946221f0f4bc0, type: 2}
+  - {fileID: 11400000, guid: eaefe3e71c715ca49bb6d39fd5f21142, type: 2}
+  - {fileID: 11400000, guid: eaefe3e71c715ca49bb6d39fd5f21142, type: 2}
+  - {fileID: 11400000, guid: b0029ee4768698c49960b526da0e097b, type: 2}
+  - {fileID: 11400000, guid: b0029ee4768698c49960b526da0e097b, type: 2}
+  - {fileID: 11400000, guid: 2688b861af392eb4b9d23ff8bb3b299a, type: 2}
   - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
   - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
-  - {fileID: 11400000, guid: c27de4011c3dd4a4da9ef95934407226, type: 2}
-  - {fileID: 11400000, guid: fa297a664ad34f246884f1efbfaadfef, type: 2}
-  - {fileID: 11400000, guid: fa297a664ad34f246884f1efbfaadfef, type: 2}
-  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
-  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
-  - {fileID: 11400000, guid: 378a09c41b4596d4ca73e31f5c136308, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0
@@ -4697,8 +4761,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Battle.CardPhaseBattleLauncher
   battleSceneName: BattleStage
-  debugRemoteUnits:
-  - {fileID: 11400000, guid: 11b911022595a494ea22dcea061a2390, type: 2}
+  debugRemoteUnits: []
 --- !u!4 &1824448879
 Transform:
   m_ObjectHideFlags: 0
@@ -6011,6 +6074,7 @@ SceneRoots:
   - {fileID: 1958314188}
   - {fileID: 347640465}
   - {fileID: 1195458265}
+  - {fileID: 1193467120}
   - {fileID: 670206534}
   - {fileID: 1388859435}
   - {fileID: 1664319205}

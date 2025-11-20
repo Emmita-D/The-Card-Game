@@ -1,7 +1,11 @@
-﻿using Game.Match.Units;
+﻿using Game.Match.Status;
+using Game.Match.Units;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Game.Core;
+using Game.Match.Cards;
+
 
 namespace Game.Match.Battle
 {
@@ -122,6 +126,13 @@ namespace Game.Match.Battle
                 var runtime = unit.GetComponent<UnitRuntime>();
                 if (runtime == null || runtime.GetFinalHealth() <= 0) continue;
 
+                // If stunned, this unit cannot move or attack this frame.
+                if (runtime.IsStunned)
+                {
+                    unit.movementLocked = true;
+                    continue;
+                }
+
                 float attackRange = runtime.rangeMeters > 0 ? runtime.rangeMeters : defaultMeleeRangeMeters;
                 float rangeSqr = attackRange * attackRange;
 
@@ -195,10 +206,95 @@ namespace Game.Match.Battle
 
                 if (Time.time >= unit.nextAttackTime)
                 {
-                    int damage = Mathf.Max(1, runtime.GetFinalAttack());
+                    // Base damage from attack stat (after ATK buffs).
+                    float baseDamage = Mathf.Max(1, runtime.GetFinalAttack());
+
+                    // Start with the attacker's outgoing damage multiplier (Savage, buffs, etc.).
+                    float totalMultiplier = runtime.GetDamageDealtMultiplier();
+
+                    // If we're hitting an enemy unit, also factor in:
+                    //  - realm-based permanent bonus
+                    //  - defender's damage-taken multiplier (Vulnerability, Fear, etc.)
+                    UnitRuntime enemyRuntime = null;
+                    if (bestEnemyUnit != null)
+                    {
+                        enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
+                        if (enemyRuntime != null)
+                        {
+                            // Realm-based permanent bonus: Empyrean vs Infernum
+                            if (runtime.realm != enemyRuntime.realm &&
+                                runtime.realmBonusVsOpposingMultiplier > 0f)
+                            {
+                                totalMultiplier *= runtime.realmBonusVsOpposingMultiplier;
+                            }
+
+                            // Status-based vulnerability / other effects on the defender
+                            totalMultiplier *= enemyRuntime.GetDamageTakenMultiplier();
+                        }
+                    }
+
+                    // Safety: keep multiplier sane.
+                    if (totalMultiplier <= 0f)
+                        totalMultiplier = 1f;
+
+                    int damage = Mathf.Max(1, Mathf.RoundToInt(baseDamage * totalMultiplier));
 
                     if (bestEnemyUnit != null)
                     {
+                        bool willKill = false;
+
+                        if (enemyRuntime != null)
+                        {
+                            int defenderFinalHp = enemyRuntime.GetFinalHealth();
+                            if (damage >= defenderFinalHp)
+                            {
+                                willKill = true;
+                            }
+                        }
+
+                        // --- On-kill: award Savage stacks to the attacker, if configured on the card ---
+                        if (willKill && runtime.StatusController != null)
+                        {
+                            var attackerCard = unit.sourceCard;
+                            if (attackerCard != null && attackerCard.savageStacksOnKill > 0)
+                            {
+                                runtime.StatusController.AddSavageStacks(attackerCard.savageStacksOnKill);
+
+                                int stacks = runtime.StatusController.GetSavageStacks();
+                                float dmgMultAfter = runtime.GetDamageDealtMultiplier();
+                                UnityEngine.Debug.Log(
+                                    $"[Savage] {runtime.displayName} gained {attackerCard.savageStacksOnKill} Savage on kill " +
+                                    $"(total={stacks}, dmgMult={dmgMultAfter:F2})"
+                                );
+                            }
+                            else
+                            {
+                                UnityEngine.Debug.Log(
+                                    $"[Savage] {runtime.displayName} landed a lethal hit but attackerCard is null " +
+                                    $"or savageStacksOnKill == 0."
+                                );
+                            }
+                        }
+                        // --- END on-kill logic ---
+
+                        // --- Savage 5+ stun on NON-lethal hits (unit vs unit only) ---
+                        if (!willKill &&
+                            runtime.StatusController != null &&
+                            enemyRuntime != null &&
+                            enemyRuntime.StatusController != null)
+                        {
+                            if (runtime.StatusController.TryProcSavageStun())
+                            {
+                                // Apply a 2-second stun to the defender.
+                                enemyRuntime.StatusController.AddStatus(new StunStatus(2f));
+
+                                UnityEngine.Debug.Log(
+                                    $"[Savage] {runtime.displayName} triggered Savage 5+ stun on {enemyRuntime.displayName}."
+                                );
+                            }
+                        }
+                        // --- END Savage 5+ stun logic ---
+
                         // Use shared kill helper so UnitDied + list cleanup are consistent.
                         KillUnit(bestEnemyUnit, damage);
                     }
@@ -212,7 +308,7 @@ namespace Game.Match.Battle
                         }
                     }
 
-                    // NEW: statuses that care about number of attacks get notified here
+                    // Statuses that care about number of attacks get notified here.
                     if (runtime.StatusController != null)
                     {
                         runtime.StatusController.NotifyOwnerAttack(runtime);
@@ -297,6 +393,17 @@ namespace Game.Match.Battle
 
                 if (bestEnemyUnit != null)
                 {
+                    // If the defender has a status that modifies damage taken, apply it.
+                    var enemyRuntime = bestEnemyUnit.GetComponent<UnitRuntime>();
+                    if (enemyRuntime != null)
+                    {
+                        float takenMultiplier = enemyRuntime.GetDamageTakenMultiplier();
+                        if (takenMultiplier > 0f)
+                        {
+                            damage = Mathf.Max(1, Mathf.RoundToInt(damage * takenMultiplier));
+                        }
+                    }
+
                     // Use shared kill helper so UnitDied + list cleanup are consistent.
                     KillUnit(bestEnemyUnit, damage);
                 }
@@ -334,9 +441,49 @@ namespace Game.Match.Battle
 
             rt.health -= finalDamage;
 
+            // Low-HP Savage trigger:
+            // If this unit's card is configured and it just dropped below 25% of its base HP
+            // (but survived the hit), grant itself Savage stacks.
+            var selfCard = unit.sourceCard;
+            if (selfCard != null && selfCard.savageStacksOnLowHealth > 0 && rt.StatusController != null)
+            {
+                float baseMaxHp = selfCard.health;
+                if (baseMaxHp > 0f)
+                {
+                    float threshold = baseMaxHp * 0.25f;
+
+                    // Health AFTER this damage:
+                    float newHealth = rt.GetFinalHealth();
+                    // Health BEFORE this damage (approximate: add the damage back).
+                    float previousHealth = newHealth + finalDamage;
+
+                    // Trigger only if:
+                    // - Unit survived (newHealth > 0),
+                    // - It crossed from above the threshold to at/below it.
+                    if (newHealth > 0f && previousHealth > threshold && newHealth <= threshold)
+                    {
+                        rt.StatusController.AddSavageStacks(selfCard.savageStacksOnLowHealth);
+
+                        int totalStacks = rt.StatusController.GetSavageStacks();
+                        float dmgMult = rt.GetDamageDealtMultiplier();
+
+                        Debug.Log(
+                            $"[Savage] {rt.displayName} dropped below 25% HP and gained {selfCard.savageStacksOnLowHealth} Savage " +
+                            $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
+                        );
+                    }
+                }
+            }
+
+
             // Use final health (base + buffs) to decide death
             if (rt.GetFinalHealth() <= 0)
             {
+                // Cache info about the dying unit before we remove / destroy it.
+                var dyingCard = unit.sourceCard;
+                Realm dyingRealm = dyingCard != null ? dyingCard.realm : rt.realm;
+                bool isVorgcoDeath = dyingCard != null && dyingCard.race == Race.Vorgco;
+
                 // Remove from the correct list.
                 if (unit.ownerId == 0)
                     _localUnits.Remove(unit);
@@ -345,6 +492,23 @@ namespace Game.Match.Battle
 
                 // Notify listeners (BattleSceneController, etc.).
                 UnitDied?.Invoke(unit);
+
+                // Savage trigger: when a Vorg'co unit dies, others may respond.
+                if (isVorgcoDeath)
+                {
+                    ApplySavageOnVorgcoDeath(dyingRealm, unit);
+                }
+
+                // Savage deathrattle: when THIS card dies, give Savage to a random
+                // friendly Savage Vorg'co unit (if configured).
+                if (dyingCard != null && dyingCard.savageStacksOnDeathToSavage > 0)
+                {
+                    ApplySavageOnDeathToSavage(
+                        ownerId: unit.ownerId,
+                        realm: dyingRealm,
+                        stacks: dyingCard.savageStacksOnDeathToSavage
+                    );
+                }
 
                 // Destroy the GameObject so GraveyardOnDestroy & visuals run.
                 Destroy(unit.gameObject);
@@ -447,6 +611,124 @@ namespace Game.Match.Battle
             // Ensure the resolver is active for the new battle.
             if (!enabled)
                 enabled = true;
+        }
+
+        /// <summary>
+        /// When a Vorg'co unit dies, grant Savage stacks to any surviving units whose CardSO
+        /// has savageStacksOnVorgcoDeath > 0 and whose realm matches the dying unit's realm.
+        /// </summary>
+        private void ApplySavageOnVorgcoDeath(Realm dyingRealm, UnitAgent dyingUnit)
+        {
+            ApplySavageOnVorgcoDeathToList(_localUnits, dyingRealm, dyingUnit);
+            ApplySavageOnVorgcoDeathToList(_remoteUnits, dyingRealm, dyingUnit);
+        }
+
+        private void ApplySavageOnVorgcoDeathToList(List<UnitAgent> list, Realm dyingRealm, UnitAgent dyingUnit)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                var u = list[i];
+                if (u == null || u == dyingUnit)
+                    continue;
+
+                var rt = u.GetComponent<UnitRuntime>();
+                if (rt == null || rt.GetFinalHealth() <= 0 || rt.StatusController == null)
+                    continue;
+
+                var card = u.sourceCard;
+                if (card == null)
+                    continue;
+
+                // Only respond if this card is configured to care about Vorg'co deaths.
+                if (card.savageStacksOnVorgcoDeath <= 0)
+                    continue;
+
+                // Optional design rule: only units from the same realm as the dying Vorg'co respond.
+                if (card.realm != dyingRealm)
+                    continue;
+
+                rt.StatusController.AddSavageStacks(card.savageStacksOnVorgcoDeath);
+
+                int totalStacks = rt.StatusController.GetSavageStacks();
+                float dmgMult = rt.GetDamageDealtMultiplier();
+
+                Debug.Log(
+                    $"[Savage] {rt.displayName} gained {card.savageStacksOnVorgcoDeath} Savage because a Vorg'co died " +
+                    $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
+                );
+            }
+        }
+
+        /// <summary>
+        /// When a unit with a "Savage deathrattle" dies, grant its configured number
+        /// of Savage stacks to ONE random friendly unit that:
+        /// - Is alive,
+        /// - Has race = Vorg'co,
+        /// - Is marked as a Savage archetype.
+        /// Optionally constrained by realm (we require same realm as the dying unit).
+        /// </summary>
+        private void ApplySavageOnDeathToSavage(int ownerId, Realm realm, int stacks)
+        {
+            if (stacks <= 0)
+                return;
+
+            // Choose the correct unit list for this owner.
+            List<UnitAgent> list = ownerId == 0 ? _localUnits : _remoteUnits;
+
+            // Collect all eligible candidates.
+            List<UnitAgent> candidates = new List<UnitAgent>();
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var u = list[i];
+                if (u == null)
+                    continue;
+
+                var rt = u.GetComponent<UnitRuntime>();
+                if (rt == null || rt.GetFinalHealth() <= 0 || rt.StatusController == null)
+                    continue;
+
+                var card = u.sourceCard;
+                if (card == null)
+                    continue;
+
+                // Must be a Vorg'co and marked as Savage archetype.
+                if (card.race != Race.Vorgco)
+                    continue;
+
+                if (!card.isSavageArchetype)
+                    continue;
+
+                // Keep it within the same realm for flavor / containment.
+                if (card.realm != realm)
+                    continue;
+
+                candidates.Add(u);
+            }
+
+            if (candidates.Count == 0)
+            {
+                // No eligible Savage Vorg'co unit to receive the deathrattle.
+                return;
+            }
+
+            // Pick one random candidate.
+            int index = Random.Range(0, candidates.Count);
+            UnitAgent chosen = candidates[index];
+
+            var chosenRuntime = chosen.GetComponent<UnitRuntime>();
+            if (chosenRuntime == null || chosenRuntime.StatusController == null)
+                return;
+
+            chosenRuntime.StatusController.AddSavageStacks(stacks);
+
+            int totalStacks = chosenRuntime.StatusController.GetSavageStacks();
+            float dmgMult = chosenRuntime.GetDamageDealtMultiplier();
+
+            Debug.Log(
+                $"[Savage] {chosenRuntime.displayName} received {stacks} Savage from a deathrattle " +
+                $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
+            );
         }
     }
 }

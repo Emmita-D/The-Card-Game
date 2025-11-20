@@ -286,6 +286,17 @@ namespace Game.Match.Battle
 
         private void Update()
         {
+            // Ensure we have a runtime reference.
+            if (_runtime == null)
+                _runtime = GetComponent<UnitRuntime>();
+
+            // If stunned, do not move at all this frame.
+            if (_runtime != null && _runtime.IsStunned)
+            {
+                moveDirection = Vector3.zero;
+                return;
+            }
+
             // If we're engaged in combat, we stay put.
             if (movementLocked) return;
 

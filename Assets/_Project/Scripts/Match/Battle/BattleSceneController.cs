@@ -201,8 +201,11 @@ namespace Game.Match.Battle
                 // Also resolve "outnumbered → slow enemy units" traps.
                 trapService.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(0);
                 trapService.TryTriggerOutnumberedSlowEnemyUnitsTrapsForOwner(1);
-            }
 
+                // NEW: resolve "all enemy units are vulnerable for N seconds" traps.
+                trapService.TryTriggerVulnerableEnemyUnitsTrapsForOwner(0);
+                trapService.TryTriggerVulnerableEnemyUnitsTrapsForOwner(1);
+            }
             // Edge case – empty battle (no units spawned on either side)
             if (recallController != null)
             {

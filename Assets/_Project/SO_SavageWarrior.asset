@@ -13,7 +13,8 @@ MonoBehaviour:
   m_Name: SO_SavageWarrior
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
   cardName: Savage Warrior
-  rulesText: When health drops below 25% gains 2 "Savage" tokens.
+  rulesText: Gains 2 "Savage" tokens after killing a unit. If this unit has 5+ "Savage"
+    tokens, stun the enemy once every fifteenth hit for 2 seconds.
   type: 0
   realm: 1
   race: 1
@@ -29,13 +30,22 @@ MonoBehaviour:
   trapDamageAmount: 100
   trapHpThresholdFraction: 0.5
   trapGroundDurationSeconds: 10
+  trapSlowPercent: 0.4
+  trapSlowDurationSeconds: 6
+  trapVulnerabilityDamageTakenMultiplier: 1.25
+  trapVulnerabilityDurationSeconds: 6
   sizeW: 2
   sizeH: 2
-  manaStars: 2
+  manaStars: 1
   attack: 10
-  health: 300
+  health: 150
   attackMode: 0
   rangeMeters: 1
+  isSavageArchetype: 1
+  savageStacksOnKill: 4
+  savageStacksOnVorgcoDeath: 0
+  savageStacksOnLowHealth: 0
+  savageStacksOnDeathToSavage: 0
   movement: 0
   chaseRangeMultiplier: 5
   frontArcDotThreshold: 0.2
@@ -46,3 +56,4 @@ MonoBehaviour:
   artSprite: {fileID: 21300000, guid: 4cb6380e2d49cfa43b80021a186c90be, type: 3}
   unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
   isLegend: 0
+  realmBonusVsOpposingMultiplier: 1

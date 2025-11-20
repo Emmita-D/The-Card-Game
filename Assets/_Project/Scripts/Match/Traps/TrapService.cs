@@ -482,6 +482,164 @@ namespace Game.Match.Traps
         }
 
         /// <summary>
+        /// "Vulnerable enemy units for time" trap:
+        ///
+        /// Called at battle start for each owner:
+        ///
+        ///     TrapService.Instance?.TryTriggerVulnerableEnemyUnitsTrapsForOwner(0);
+        ///     TrapService.Instance?.TryTriggerVulnerableEnemyUnitsTrapsForOwner(1);
+        ///
+        /// This evaluates:
+        ///  - all armed VulnerableEnemyUnitsForTime traps for that owner
+        ///  - current alive enemy units
+        /// If the opponent controls at least one alive unit, all of them
+        /// receive a VulnerabilityStatus (extra damage taken for a duration),
+        /// and the trap is consumed.
+        /// If not, the trap STAYS armed (not consumed).
+        /// </summary>
+        public void TryTriggerVulnerableEnemyUnitsTrapsForOwner(int ownerId)
+        {
+            var resolver = CombatResolver.Instance;
+            if (resolver == null)
+            {
+                Debug.LogWarning("[TrapService] No CombatResolver present when trying to trigger VulnerableEnemyUnitsForTime traps.");
+                return;
+            }
+
+            // Enemy units relative to the trap owner.
+            var enemyUnitsReadOnly = (ownerId == 0)
+                ? resolver.RemoteUnits
+                : resolver.LocalUnits;
+
+            List<UnitAgent> enemyUnits = null;
+            if (enemyUnitsReadOnly != null)
+                enemyUnits = new List<UnitAgent>(enemyUnitsReadOnly);
+
+            // Build list of alive enemy units only.
+            var enemyAlive = new List<UnitAgent>();
+            if (enemyUnits != null)
+            {
+                for (int i = 0; i < enemyUnits.Count; i++)
+                {
+                    var unit = enemyUnits[i];
+                    if (unit == null)
+                        continue;
+
+                    var rt = unit.GetComponent<UnitRuntime>();
+                    if (rt == null || rt.health <= 0)
+                        continue;
+
+                    enemyAlive.Add(unit);
+                }
+            }
+
+            // If there are no enemy units alive, condition not met → keep traps armed.
+            if (enemyAlive.Count == 0)
+                return;
+
+            // Collect all relevant traps for this owner.
+            var vulnTraps = new List<ArmedTrap>();
+            foreach (var trap in _armedTraps)
+            {
+                if (trap.consumed || trap.card == null)
+                    continue;
+
+                if (trap.ownerId != ownerId)
+                    continue;
+
+                if (trap.card.trapEffect != TrapEffectKind.VulnerableEnemyUnitsForTime)
+                    continue;
+
+                vulnTraps.Add(trap);
+            }
+
+            if (vulnTraps.Count == 0)
+                return;
+
+            foreach (var trap in vulnTraps)
+            {
+                TryResolveOneVulnerableEnemyUnitsTrap(trap, enemyAlive);
+            }
+
+            // Remove only traps that were actually consumed.
+            _armedTraps.RemoveAll(t => t.consumed || t.card == null);
+        }
+
+        /// <summary>
+        /// Internal helper for the VulnerableEnemyUnitsForTime trap.
+        /// At this point we already know the opponent has at least one alive unit.
+        /// We simply apply VulnerabilityStatus (extra damage taken) to all enemy units
+        /// for a per-card duration and consume the trap.
+        /// </summary>
+        private void TryResolveOneVulnerableEnemyUnitsTrap(ArmedTrap trap, List<UnitAgent> enemyAlive)
+        {
+            if (trap == null || trap.card == null)
+                return;
+
+            var logger = ActionLogService.Instance;
+            string trapName = string.IsNullOrEmpty(trap.card.cardName)
+                ? trap.card.name
+                : trap.card.cardName;
+
+            if (enemyAlive == null || enemyAlive.Count == 0)
+            {
+                // Should be rare, since we checked counts earlier, but be safe.
+                if (logger != null)
+                {
+                    logger.SystemCard(
+                        $"Trap {trapName} triggered (vulnerability condition met), " +
+                        $"but there were no enemy units to mark as vulnerable.",
+                        trap.card.artSprite,
+                        trap.card
+                    );
+                }
+
+                // Still consume the trap and send to graveyard as "fizzled".
+                trap.consumed = true;
+                var gyNone = GraveyardService.Instance;
+                if (gyNone != null)
+                    gyNone.Add(trap.ownerId, trap.card);
+
+                return;
+            }
+
+            // Use per-card tuning for the vulnerability effect (from CardSO).
+            float extraMultiplier = Mathf.Max(1f, trap.card.trapVulnerabilityDamageTakenMultiplier);
+            // Safety: at least a tiny duration so the status has meaning.
+            float vulnDuration = Mathf.Max(0.01f, trap.card.trapVulnerabilityDurationSeconds);
+
+            foreach (var unit in enemyAlive)
+            {
+                if (unit == null)
+                    continue;
+
+                var rt = unit.GetComponent<UnitRuntime>();
+                if (rt == null || rt.StatusController == null)
+                    continue;
+
+                rt.StatusController.AddStatus(new VulnerabilityStatus(vulnDuration, extraMultiplier));
+            }
+
+            if (logger != null)
+            {
+                logger.SystemCard(
+                    $"Trap {trapName} triggered: all enemy units take {(extraMultiplier - 1f) * 100f:0.#}% extra damage " +
+                    $"for {vulnDuration:0.#} seconds.",
+                    trap.card.artSprite,
+                    trap.card
+                );
+            }
+
+            // Consume the trap and send it to graveyard.
+            trap.consumed = true;
+
+            var gy = GraveyardService.Instance;
+            if (gy != null)
+                gy.Add(trap.ownerId, trap.card);
+        }
+
+
+        /// <summary>
         /// Internal helper for the Outnumbered_SlowEnemyUnitsForTime trap.
         /// At this point we already know the opponent has more alive units.
         /// We simply apply a 40% slow to all enemy units for a fixed duration

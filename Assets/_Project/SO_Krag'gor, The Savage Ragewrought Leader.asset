@@ -29,9 +29,18 @@ MonoBehaviour:
   spellSearchRealmFilter: 0
   spellBuffAttackAmount: 0
   spellBuffHealthAmount: 0
+  spellBuffLifetimeKind: 0
+  spellBuffDurationSeconds: 0
+  spellBuffAttackCount: 0
+  spellBuffTurnCount: 0
   trapEffect: 0
   trapDamageAmount: 100
   trapHpThresholdFraction: 0.5
+  trapGroundDurationSeconds: 10
+  trapSlowPercent: 0.4
+  trapSlowDurationSeconds: 6
+  trapVulnerabilityDamageTakenMultiplier: 1.25
+  trapVulnerabilityDurationSeconds: 6
   sizeW: 2
   sizeH: 2
   manaStars: 6
@@ -39,6 +48,13 @@ MonoBehaviour:
   health: 800
   attackMode: 0
   rangeMeters: 1
+  onCallTargeting: 0
+  onCallSavageStacksToChosenTarget: 0
+  isSavageArchetype: 1
+  savageStacksOnKill: 0
+  savageStacksOnVorgcoDeath: 0
+  savageStacksOnLowHealth: 0
+  savageStacksOnDeathToSavage: 0
   movement: 0
   chaseRangeMultiplier: 5
   frontArcDotThreshold: 0.2
@@ -49,3 +65,4 @@ MonoBehaviour:
   artSprite: {fileID: 21300000, guid: d8ec41880a070234b8529edd6d471d39, type: 3}
   unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
   isLegend: 1
+  realmBonusVsOpposingMultiplier: 1

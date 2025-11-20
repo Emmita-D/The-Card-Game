@@ -1,4 +1,4 @@
-using Game.Core;
+﻿using Game.Core;
 using Game.Match.Cards;
 using Game.Match.Status;   // StatusEffect, StatModifier, GroundedStatus
 using UnityEngine;
@@ -24,6 +24,10 @@ namespace Game.Match.Units
         public MovementType movementType;
         public AttackMode attackMode;
 
+        [Header("Realm matchup (runtime)")]
+        [Tooltip("1 = no bonus. >1 means this unit deals extra damage vs units from the opposing realm.")]
+        public float realmBonusVsOpposingMultiplier = 1f;
+
         [Header("Height / special flags")]
         [Tooltip("Current vertical layer for combat rules (Ground / Air).")]
         public HeightLayer heightLayer = HeightLayer.Ground;
@@ -33,6 +37,10 @@ namespace Game.Match.Units
 
         [Header("Status / Buffs")]
         public UnitStatusController StatusController { get; private set; }
+
+
+        // Source card that created this unit (for per-card effects like Savage on kill, etc.).
+        public CardSO SourceCard { get; private set; }
 
         private void Awake()
         {
@@ -44,6 +52,7 @@ namespace Game.Match.Units
         public void InitFrom(CardSO so)
         {
             if (so == null) return;
+            SourceCard = so;
             displayName = so.cardName;
             attack = so.attack;
             health = so.health;
@@ -52,6 +61,10 @@ namespace Game.Match.Units
 
             movementType = so.movement;
             attackMode = so.attackMode;
+
+            realmBonusVsOpposingMultiplier = so.realmBonusVsOpposingMultiplier <= 0f
+                ? 1f
+                : so.realmBonusVsOpposingMultiplier;
 
             // Dive flier flag & height initialization.
             isDiveFlier = so.isDiveFlier &&
@@ -190,6 +203,18 @@ namespace Game.Match.Units
             }
 
             return baseMoveSpeed * multiplier;
+        }
+
+        /// <summary>
+        /// True if this unit is currently stunned (has at least one active StunStatus).
+        /// Convenience wrapper over UnitStatusController.IsStunned().
+        /// </summary>
+        public bool IsStunned
+        {
+            get
+            {
+                return StatusController != null && StatusController.IsStunned();
+            }
         }
 
         /// <summary>

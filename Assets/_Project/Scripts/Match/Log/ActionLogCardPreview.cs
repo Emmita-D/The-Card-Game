@@ -55,9 +55,10 @@ namespace Game.Match.Log
         }
 
         /// <summary>
-        /// Show a live unit from the battlefield:
+        /// Shows a preview for a live unit from the battlefield:
         /// - Uses sourceCard for art/frame/text
-        /// - Uses UnitRuntime.GetFinalAttack/Health for buffed stats
+        /// - Uses UnitRuntime for buffed stats
+        /// - Attack is shown as (FinalAttack * DamageDealtMultiplier)
         /// </summary>
         public void ShowUnit(UnitAgent agent)
         {
@@ -76,9 +77,21 @@ namespace Game.Match.Log
                 var runtime = agent.GetComponent<UnitRuntime>();
                 if (runtime != null)
                 {
-                    int finalAtk = runtime.GetFinalAttack();
+                    int baseAtk = runtime.GetFinalAttack();
                     int finalHp = runtime.GetFinalHealth();
-                    _currentView.OverrideStats(finalAtk, finalHp);
+
+                    float dmgMult = runtime.GetDamageDealtMultiplier();
+                    if (dmgMult <= 0f)
+                        dmgMult = 1f;
+
+                    int shownAtk = Mathf.Max(1, Mathf.RoundToInt(baseAtk * dmgMult));
+
+                    // DEBUG: log what we’re actually showing
+                    UnityEngine.Debug.Log(
+                        $"[Preview] {runtime.displayName} baseAtk={baseAtk}, dmgMult={dmgMult:F2}, shownAtk={shownAtk}, savage={runtime.StatusController?.GetSavageStacks()}"
+                    );
+
+                    _currentView.OverrideStats(shownAtk, finalHp);
                 }
             }
         }

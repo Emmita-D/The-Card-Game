@@ -14,16 +14,25 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
   cardName: Devoted Search
   rulesText: Search a Devoted Sectatore
-  type: 1
+  type: 2
   realm: 0
   race: 0
-  spellEffect: 1
+  spellEffect: 0
   spellSearchRealmFilter: 0
   spellBuffAttackAmount: 0
   spellBuffHealthAmount: 0
-  trapEffect: 0
+  spellBuffLifetimeKind: 0
+  spellBuffDurationSeconds: 0
+  spellBuffAttackCount: 0
+  spellBuffTurnCount: 0
+  trapEffect: 4
   trapDamageAmount: 100
   trapHpThresholdFraction: 0.5
+  trapGroundDurationSeconds: 10
+  trapSlowPercent: 0.4
+  trapSlowDurationSeconds: 6
+  trapVulnerabilityDamageTakenMultiplier: 3
+  trapVulnerabilityDurationSeconds: 60
   sizeW: 1
   sizeH: 1
   manaStars: 0
@@ -41,3 +50,4 @@ MonoBehaviour:
   artSprite: {fileID: 21300000, guid: a47098ffcfbd3a144828ca877418bcf0, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0
+  realmBonusVsOpposingMultiplier: 1

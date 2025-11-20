@@ -14,10 +14,11 @@ namespace Game.Match.Cards
     // v1 trap effects.
     public enum TrapEffectKind
     {
-        None = 0,                                    // ← bring this back / keep it
+        None = 0,
         TowerBelowHalf_DamageRandomEnemyUnit = 1,
         GroundEnemyFlierForTime = 2,
-        Outnumbered_SlowEnemyUnitsForTime = 3       // ← our new trap
+        Outnumbered_SlowEnemyUnitsForTime = 3,
+        VulnerableEnemyUnitsForTime = 4            // NEW: apply vulnerability to all enemy units
     }
     public enum BuffLifetimeKind
     {
@@ -25,6 +26,24 @@ namespace Game.Match.Cards
         TimeSeconds = 1,
         AttackCount = 2,
         TurnCount = 3
+    }
+
+    /// <summary>
+    /// v1 targeting categories for CardPhase "Call" effects.
+    /// This is intentionally tiny for now.
+    /// </summary>
+    public enum OnCallTargetingKind
+    {
+        None = 0,
+
+        /// <summary>
+        /// When called, choose ONE friendly unit that matches:
+        /// - same owner
+        /// - Race = Vorgco
+        /// - isSavageArchetype = true
+        /// Then apply some effect (e.g. give Savage stacks).
+        /// </summary>
+        ChosenFriendlySavageVorgco = 1,
     }
 
     [CreateAssetMenu(fileName = "NewCard", menuName = "Game/Cards/Card", order = 0)]
@@ -76,6 +95,11 @@ namespace Game.Match.Cards
         public float trapSlowPercent = 0.40f;          // 0.4 = 40% slow
         public float trapSlowDurationSeconds = 6f;     // how long the slow lasts
 
+        [Tooltip("Vulnerability trap tuning (extra damage taken by enemy units).")]
+        [Range(1f, 3f)]
+        public float trapVulnerabilityDamageTakenMultiplier = 1.25f; // 25% extra damage
+        public float trapVulnerabilityDurationSeconds = 6f;          // how long the vulnerability lasts
+
         [Header("Footprint (tiles)")]
         [Range(1, 4)] public int sizeW = 1;
         [Range(1, 4)] public int sizeH = 1;
@@ -88,6 +112,33 @@ namespace Game.Match.Cards
         public int health = 1;
         public AttackMode attackMode = AttackMode.Melee;
         public float rangeMeters = 0f;
+
+        [Header("On-Call Targeting (CardPhase, v1)")]
+        [Tooltip("If not None, this unit's Call requires choosing a target on the CardPhase board.")]
+        public OnCallTargetingKind onCallTargeting = OnCallTargetingKind.None;
+
+        [Tooltip("For effects like: 'When called, give X Savage tokens to a chosen friendly Savage Vorg'co unit'.")]
+        [Min(0)]
+        public int onCallSavageStacksToChosenTarget = 0;
+
+        [Header("Savage (unit-only, v1)")]
+        [Tooltip("Marks this unit as part of the 'Savage' archetype for card effects (e.g., deathrattles that target Savage units only).")]
+        public bool isSavageArchetype = false;
+
+        [Tooltip("If > 0, this unit gains this many Savage stacks whenever it delivers a killing blow to an enemy unit.")]
+        public int savageStacksOnKill = 0;
+
+        [Tooltip("If > 0, this unit gains this many Savage tokens whenever a Vorg'co unit of the same realm dies on the battlefield.")]
+        [Min(0)]
+        public int savageStacksOnVorgcoDeath = 0;
+
+        [Tooltip("If > 0, this unit gains this many Savage tokens when its health first drops below 25% of its base HP (per damage event).")]
+        [Min(0)]
+        public int savageStacksOnLowHealth = 0;
+
+        [Tooltip("If > 0, when THIS unit dies, it gives this many Savage tokens to a random friendly unit that is both race = Vorg'co and marked as a Savage archetype.")]
+        [Min(0)]
+        public int savageStacksOnDeathToSavage = 0;
 
         [Header("Movement (if Unit)")]
         public MovementType movement = MovementType.Ground;
@@ -119,6 +170,12 @@ namespace Game.Match.Cards
 
         [Header("Legend")]
         public bool isLegend = false;
+
+        [Header("Realm matchup (unit effect)")]
+        [Tooltip("If > 1, this unit deals extra damage when attacking units from the opposing realm (Empyrean vs Infernum). 1 = no bonus.")]
+        public float realmBonusVsOpposingMultiplier = 1f;
+
+
 
         // Back-compat for older code that expects an enum SizeClass
         public SizeClass size

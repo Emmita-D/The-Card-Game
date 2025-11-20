@@ -286,7 +286,50 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
             var ur = go.GetComponent<Game.Match.Units.UnitRuntime>();
             if (ur != null) ur.InitFrom(so);
+            // NEW: attach CardPhaseSelectableUnit so this unit can be chosen as a target in CardPhase.
+            CardPhaseSelectableUnit selectable = null;
+            if (col != null)
+            {
+                selectable = col.GetComponent<CardPhaseSelectableUnit>();
+                if (selectable == null)
+                    selectable = col.gameObject.AddComponent<CardPhaseSelectableUnit>();
+            }
+            else
+            {
+                selectable = go.GetComponent<CardPhaseSelectableUnit>();
+                if (selectable == null)
+                    selectable = go.AddComponent<CardPhaseSelectableUnit>();
+            }
+
+            if (selectable != null)
+            {
+                int ownerId = (instance != null) ? instance.ownerId : 0;
+                selectable.InitializeForCardPhase(ownerId, so, ur);
+            }
+
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
+            // If this card has an On-Call targeting requirement (v1),
+            // start CardPhase target selection so the player can choose a recipient.
+            if (so != null
+                && so.onCallTargeting != OnCallTargetingKind.None
+                && so.onCallSavageStacksToChosenTarget > 0)
+            {
+                var sel = CardPhaseTargetSelectionController.Instance;
+                if (sel != null)
+                {
+                    // v1: we pass null as callback; Step 3 will wire a real effect callback.
+                    sel.BeginOnCallSelection(
+                        instance,
+                        so.onCallTargeting,
+                        so.onCallSavageStacksToChosenTarget,
+                        callback: null
+                    );
+                }
+                else
+                {
+                    Debug.LogWarning("[DraggableCard] On-call targeting requested, but CardPhaseTargetSelectionController.Instance is null.");
+                }
+            }
         }
         // Log: unit placed on the CardPhase board (local-only)
         if (so != null && so.type == CardType.Unit)
