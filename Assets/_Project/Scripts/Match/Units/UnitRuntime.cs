@@ -42,6 +42,10 @@ namespace Game.Match.Units
         // Source card that created this unit (for per-card effects like Savage on kill, etc.).
         public CardSO SourceCard { get; private set; }
 
+        [Header("Savage Ally Support (runtime)")]
+        [Tooltip("Next time this unit's low-HP ally heal support effect is ready. Uses Time.time seconds.")]
+        public float nextLowHpAllyHealReadyTime = 0f;
+
         private void Awake()
         {
             // Initialize per-unit status container
@@ -181,6 +185,56 @@ namespace Game.Match.Units
             StatModifier total = StatusController.GetTotalModifiers();
             return health + total.healthBonus;
         }
+
+                /// <summary>
+        /// Heals this unit by the given amount, clamped so that its final health does not exceed
+        /// its base max HP (from SourceCard) plus any healthBonus from statuses.
+        /// Uses the same health + status model as GetFinalHealth().
+        /// </summary>
+        public void Heal(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            // Current raw health value that damage subtracts from.
+            int currentHealth = health;
+
+            // Determine max health: base card health (if available) plus any healthBonus from statuses.
+            int maxHealth;
+            if (SourceCard != null)
+            {
+                maxHealth = SourceCard.health;
+            }
+            else
+            {
+                // Fallback: allow healing relative to current health if no SourceCard is present.
+                maxHealth = currentHealth + amount;
+            }
+
+            int bonus = 0;
+            if (StatusController != null)
+            {
+                StatModifier total = StatusController.GetTotalModifiers();
+                bonus = total.healthBonus;
+            }
+
+            maxHealth += bonus;
+            if (maxHealth < 0)
+            {
+                maxHealth = 0;
+            }
+
+            int newHealth = currentHealth + amount;
+            if (newHealth > maxHealth)
+            {
+                newHealth = maxHealth;
+            }
+
+            health = newHealth;
+        }
+
 
         /// <summary>
         /// Returns the final movement speed for this unit given a base value,

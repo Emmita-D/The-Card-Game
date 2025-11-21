@@ -71,6 +71,15 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnBeginDrag(PointerEventData e)
     {
+        // If the CardPhase target selection is active, do not allow playing other cards
+        // until the player has chosen a target or cancelled the selection.
+        var selection = CardPhaseTargetSelectionController.Instance;
+        if (selection != null && selection.IsSelecting)
+        {
+            Debug.Log("[DraggableCard] Cannot drag/play cards while a CardPhase target selection is active.");
+            return;
+        }
+
         IsDragging = true;
         startParent = transform.parent;
         startSibling = transform.GetSiblingIndex();
@@ -109,6 +118,13 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnDrag(PointerEventData e)
     {
+        // If a CardPhase target selection is active, ignore drag movement.
+        var selection = CardPhaseTargetSelectionController.Instance;
+        if (selection != null && selection.IsSelecting)
+        {
+            return;
+        }
+
         // Keep affordability up to date while dragging
         if (PreviewIsUnit && aff != null)
             PreviewAffordable = aff.ComputeAffordableNow();
@@ -135,6 +151,16 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         ToggleDebugPreviews(false);
         PreviewIsUnit = false;
         PreviewAffordable = true;
+
+        // If a CardPhase target selection is active, do not allow this drag to result
+        // in playing the card. Just snap it back to the hand.
+        var selection = CardPhaseTargetSelectionController.Instance;
+        if (selection != null && selection.IsSelecting)
+        {
+            Debug.Log("[DraggableCard] OnEndDrag blocked while target selection is active; snapping card back.");
+            SnapBack();
+            return;
+        }
 
         if (instance == null || grid == null) { SnapBack(); return; }
         var so = instance.data;
@@ -331,7 +357,37 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                 }
             }
         }
-        // Log: unit placed on the CardPhase board (local-only)
+        // On-call: search this player's deck for a Vorg'co unit and let the player choose one.
+        if (so != null && (so.onCallSearchVorgcoUnit || so.onCallSearchVorgcoMagic))
+        {
+            if (turn != null)
+            {
+                int owner = (instance != null) ? instance.ownerId : 0;
+
+                // Try singleton first, then a direct scene search as a safety net.
+                var panel = DeckSearchVorgcoPanel.Instance;
+                if (panel == null)
+                {
+                    panel = FindObjectOfType<DeckSearchVorgcoPanel>();
+                }
+
+                if (panel != null)
+                {
+                    Debug.Log("[DraggableCard] Opening DeckSearchVorgcoPanel for on-call Vorg'co search.");
+                    panel.Begin(so, owner, turn);
+                }
+                else
+                {
+                    Debug.LogWarning("[DraggableCard] DeckSearchVorgcoPanel not found in scene – on-call search will NOT auto-pick anymore.");
+                    // IMPORTANT: do NOT call ResolveOnCallSearchVorgcoUnit here.
+                    // If the panel is missing, the effect just fizzles instead of auto-picking.
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[DraggableCard] On-call deck search requested, but TurnController reference is null.");
+            }
+        }
         if (so != null && so.type == CardType.Unit)
         {
             var logger = ActionLogService.Instance;

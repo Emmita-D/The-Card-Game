@@ -439,13 +439,14 @@ namespace Game.Match.Battle
             if (finalDamage <= 0)
                 return;
 
+            // Apply raw damage to the underlying health field.
             rt.health -= finalDamage;
 
-            // Low-HP Savage trigger:
-            // If this unit's card is configured and it just dropped below 25% of its base HP
-            // (but survived the hit), grant itself Savage stacks.
+            // Low-HP event detection (25% threshold) shared by:
+            //  - Self-Savage-on-low-health
+            //  - Ally support heal effect
             var selfCard = unit.sourceCard;
-            if (selfCard != null && selfCard.savageStacksOnLowHealth > 0 && rt.StatusController != null)
+            if (selfCard != null && rt.StatusController != null)
             {
                 float baseMaxHp = selfCard.health;
                 if (baseMaxHp > 0f)
@@ -462,19 +463,25 @@ namespace Game.Match.Battle
                     // - It crossed from above the threshold to at/below it.
                     if (newHealth > 0f && previousHealth > threshold && newHealth <= threshold)
                     {
-                        rt.StatusController.AddSavageStacks(selfCard.savageStacksOnLowHealth);
+                        // Self-Savage trigger (existing behaviour).
+                        if (selfCard.savageStacksOnLowHealth > 0)
+                        {
+                            rt.StatusController.AddSavageStacks(selfCard.savageStacksOnLowHealth);
 
-                        int totalStacks = rt.StatusController.GetSavageStacks();
-                        float dmgMult = rt.GetDamageDealtMultiplier();
+                            int totalStacks = rt.StatusController.GetSavageStacks();
+                            float dmgMult = rt.GetDamageDealtMultiplier();
 
-                        Debug.Log(
-                            $"[Savage] {rt.displayName} dropped below 25% HP and gained {selfCard.savageStacksOnLowHealth} Savage " +
-                            $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
-                        );
+                            Debug.Log(
+                                $"[Savage] {rt.displayName} dropped below 25% HP and gained {selfCard.savageStacksOnLowHealth} Savage " +
+                                $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
+                            );
+                        }
+
+                        // Ally support: allow dedicated support units to heal this low-HP ally.
+                        TryApplyLowHpAllySupport(unit, rt);
                     }
                 }
             }
-
 
             // Use final health (base + buffs) to decide death
             if (rt.GetFinalHealth() <= 0)
@@ -512,6 +519,80 @@ namespace Game.Match.Battle
 
                 // Destroy the GameObject so GraveyardOnDestroy & visuals run.
                 Destroy(unit.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Handles the low-HP ally support behaviour: when a Vorg'co unit of a given realm
+        /// drops below 25% HP, Savage archetype support units for that side may heal it,
+        /// subject to a per-support cooldown configured on their CardSO.
+        /// </summary>
+        private void TryApplyLowHpAllySupport(UnitAgent lowHpUnit, UnitRuntime lowHpRuntime)
+        {
+            if (lowHpUnit == null || lowHpRuntime == null)
+                return;
+
+            var targetCard = lowHpUnit.sourceCard;
+            if (targetCard == null)
+                return;
+
+            // Only care about Vorg'co units for this support effect.
+            if (targetCard.race != Race.Vorgco)
+                return;
+
+            Realm targetRealm = targetCard.realm;
+            int ownerId = lowHpUnit.ownerId;
+
+            List<UnitAgent> allies = ownerId == 0 ? _localUnits : _remoteUnits;
+            if (allies == null || allies.Count == 0)
+                return;
+
+            for (int i = 0; i < allies.Count; i++)
+            {
+                var support = allies[i];
+                if (support == null)
+                    continue;
+
+                // Do not heal with dead or invalid supports.
+                var supportRuntime = support.GetComponent<UnitRuntime>();
+                if (supportRuntime == null || supportRuntime.GetFinalHealth() <= 0)
+                    continue;
+
+                var supportCard = support.sourceCard;
+                if (supportCard == null)
+                    continue;
+
+                // Support configuration: Vorg'co unit with heal settings configured
+                // (does NOT need to be marked as a Savage archetype).
+                if (supportCard.race != Race.Vorgco)
+                    continue;
+                if (supportCard.lowHpAllyHealAmount <= 0)
+                    continue;
+                if (supportCard.lowHpAllyHealCooldownSeconds <= 0f)
+                    continue;
+
+                // Must be same realm as the low-HP unit.
+                if (supportRuntime.realm != targetRealm)
+                    continue;
+
+                // Respect per-support cooldown.
+                if (Time.time < supportRuntime.nextLowHpAllyHealReadyTime)
+                    continue;
+
+                int healAmount = supportCard.lowHpAllyHealAmount;
+                int beforeHp = lowHpRuntime.GetFinalHealth();
+                lowHpRuntime.Heal(healAmount);
+                int afterHp = lowHpRuntime.GetFinalHealth();
+
+                supportRuntime.nextLowHpAllyHealReadyTime = Time.time + supportCard.lowHpAllyHealCooldownSeconds;
+
+                Debug.Log(
+                    $"[Savage Support] {supportRuntime.displayName} healed {lowHpRuntime.displayName} for {healAmount} HP " +
+                    $"(HP {beforeHp} -> {afterHp}), next ready at t={supportRuntime.nextLowHpAllyHealReadyTime:F1}."
+                );
+
+                // For now, only one support reacts to each low-HP event.
+                break;
             }
         }
 

@@ -10,17 +10,17 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
-  m_Name: SO_Savage Channeler
+  m_Name: SO_Isesm, the onliest first Vorg'co
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: Savage Channeler
-  rulesText: When called, search for a Vorg'co Magic card in your deck.
+  cardName: Isesm, the onliest first Vorg'co
+  rulesText: When called, search for a Vorg'co unit in the deck.
   type: 0
   realm: 1
   race: 1
   spellEffect: 0
   spellSearchRealmFilter: 0
-  spellBuffAttackAmount: 0
-  spellBuffHealthAmount: 0
+  spellBuffAttackAmount: 2
+  spellBuffHealthAmount: 2
   spellBuffLifetimeKind: 0
   spellBuffDurationSeconds: 0
   spellBuffAttackCount: 0
@@ -35,16 +35,15 @@ MonoBehaviour:
   trapVulnerabilityDurationSeconds: 6
   sizeW: 2
   sizeH: 2
-  manaStars: 1
-  attack: 10
+  manaStars: 0
+  attack: 5
   health: 100
-  attackMode: 1
-  rangeMeters: 2.5
+  attackMode: 0
+  rangeMeters: 1
   onCallTargeting: 0
   onCallSavageStacksToChosenTarget: 0
-  onCallSearchVorgcoUnit: 0
-  onCallSearchVorgcoMagic: 1
-  isSavageArchetype: 1
+  onCallSearchVorgcoUnit: 1
+  isSavageArchetype: 0
   savageStacksOnKill: 0
   savageStacksOnVorgcoDeath: 0
   savageStacksOnLowHealth: 0
@@ -58,7 +57,7 @@ MonoBehaviour:
   canAttackFlyingUnits: 1
   canAttackTowers: 1
   isDiveFlier: 0
-  artSprite: {fileID: 21300000, guid: f8b2f724ae8c2f04d9c6f13530a53fea, type: 3}
+  artSprite: {fileID: 21300000, guid: 6c68be96a13972243a53c06ccfb40daf, type: 3}
   unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
   isLegend: 0
   realmBonusVsOpposingMultiplier: 1

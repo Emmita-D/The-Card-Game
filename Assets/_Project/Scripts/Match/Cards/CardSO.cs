@@ -121,6 +121,13 @@ namespace Game.Match.Cards
         [Min(0)]
         public int onCallSavageStacksToChosenTarget = 0;
 
+        [Header("On-call: Deck Search (unit-only)")]
+        [Tooltip("If true, when this unit is Called on the CardPhase grid, it will search its owner's deck for a Vorg'co unit and add it to hand (respecting hand size and deck rules).")]
+        public bool onCallSearchVorgcoUnit = false;
+
+        [Tooltip("If true, when this card is Called it opens the choose-one panel to search for a Vorg'co magic (spell) card in your deck.")]
+        public bool onCallSearchVorgcoMagic;
+
         [Header("Savage (unit-only, v1)")]
         [Tooltip("Marks this unit as part of the 'Savage' archetype for card effects (e.g., deathrattles that target Savage units only).")]
         public bool isSavageArchetype = false;
@@ -139,6 +146,15 @@ namespace Game.Match.Cards
         [Tooltip("If > 0, when THIS unit dies, it gives this many Savage tokens to a random friendly unit that is both race = Vorg'co and marked as a Savage archetype.")]
         [Min(0)]
         public int savageStacksOnDeathToSavage = 0;
+
+        [Header("Savage Ally Support (unit-only, v1)")]
+        [Tooltip("If > 0, this unit can automatically heal low-HP friendly Vorg'co allies of the same realm when they first drop below 25% of base HP.")]
+        [Min(0)]
+        public int lowHpAllyHealAmount = 0;
+
+        [Tooltip("Cooldown in seconds between low-HP ally heals for this unit. Per-support cooldown, using Time.time.")]
+        [Min(0f)]
+        public float lowHpAllyHealCooldownSeconds = 0f;
 
         [Header("Movement (if Unit)")]
         public MovementType movement = MovementType.Ground;

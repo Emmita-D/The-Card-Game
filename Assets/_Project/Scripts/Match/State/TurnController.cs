@@ -369,6 +369,161 @@ namespace Game.Match.State
             PushHandToView();
         }
 
+        /// <summary>
+        /// Called when a unit with an on-call Vorg'co search effect is successfully Called
+        /// on the CardPhase board. Searches this player's deck for the first unit card
+        /// with Race.Vorgco, removes it from the deck, and adds it to hand (or graveyard
+        /// if the hand is full).
+        /// </summary>
+        public void ResolveOnCallSearchVorgcoUnit(CardSO caller, int ownerIdForEffect)
+        {
+            if (caller == null)
+                return;
+
+            var candidates = GetVorgcoUnitsInDeck();
+            if (candidates == null || candidates.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveOnCallSearchVorgcoUnit: no Vorg'co unit found in deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string callerName = string.IsNullOrEmpty(caller.cardName) ? caller.name : caller.cardName;
+                    loggerNone.SystemCard($"Called {callerName}, but found no Vorg'co unit in the deck.");
+                }
+                return;
+            }
+
+            // Fallback: auto-pick the first candidate.
+            var picked = candidates[0];
+            ResolveOnCallSearchVorgcoUnitPick(caller, ownerIdForEffect, picked);
+        }
+
+        // Returns all Vorg'co SPELL cards currently in this player's deck.
+        public List<CardSO> GetVorgcoMagicCardsInDeck()
+        {
+            var result = new List<CardSO>();
+
+            foreach (var so in deck)
+            {
+                if (so == null) continue;
+
+                // Magic = Spell type + race Vorg'co
+                if (so.type != CardType.Spell) continue;
+                if (so.race != Race.Vorgco) continue;
+
+                result.Add(so);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns a snapshot list of all Vorg'co unit CardSOs currently in this player's deck,
+        /// in deck order (top-first).
+        /// </summary>
+        public List<CardSO> GetVorgcoUnitsInDeck()
+        {
+            var result = new List<CardSO>();
+            foreach (var so in deck)
+            {
+                if (so == null)
+                    continue;
+
+                if (so.type == CardType.Unit && so.race == Race.Vorgco)
+                    result.Add(so);
+            }
+            return result;
+        }
+        /// <summary>
+        /// Resolve the Vorg'co on-call search when the caller has already chosen a specific
+        /// CardSO from the deck. Removes the first instance of that CardSO from the deck and
+        /// adds it to hand (or graveyard if hand is full).
+        /// </summary>
+
+        public void ResolveOnCallSearchVorgcoUnitPick(CardSO caller, int ownerIdForEffect, CardSO picked)
+        {
+            if (caller == null || picked == null)
+                return;
+
+            if (deck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveOnCallSearchVorgcoUnitPick: deck empty, nothing to search.");
+                var loggerEmpty = ActionLogService.Instance;
+                if (loggerEmpty != null)
+                {
+                    string callerName = string.IsNullOrEmpty(caller.cardName) ? caller.name : caller.cardName;
+                    loggerEmpty.SystemCard($"Called {callerName}, but the deck was empty.");
+                }
+                return;
+            }
+
+            // Rebuild the deck, removing only the first instance of 'picked'.
+            var tmp = new List<CardSO>(deck);
+            deck.Clear();
+
+            bool removed = false;
+            foreach (var card in tmp)
+            {
+                if (!removed && card == picked)
+                {
+                    removed = true;
+                    continue; // skip this one; it's the chosen card
+                }
+
+                deck.Enqueue(card);
+            }
+
+            if (!removed)
+            {
+                Debug.LogWarning("[Turn] ResolveOnCallSearchVorgcoUnitPick: picked card was not found in deck.");
+                return;
+            }
+
+            // Hand full? send to graveyard instead.
+            if (hand.Count >= handMax)
+            {
+                Debug.Log(
+                    $"[Turn] ResolveOnCallSearchVorgcoUnitPick: hand full ({hand.Count}/{handMax}), " +
+                    $"cannot add searched card {picked.cardName}. Sending to graveyard."
+                );
+
+                var loggerFull = ActionLogService.Instance;
+                if (loggerFull != null)
+                {
+                    string callerName = string.IsNullOrEmpty(caller.cardName) ? caller.name : caller.cardName;
+                    string foundName = string.IsNullOrEmpty(picked.cardName) ? picked.name : picked.cardName;
+                    loggerFull.SystemCard(
+                        $"Called {callerName}, found {foundName} but your hand is full. The card was sent to the graveyard."
+                    );
+                }
+
+                var gy = GraveyardService.Instance;
+                if (gy != null)
+                    gy.Add(ownerIdForEffect, picked);
+
+                return;
+            }
+
+            // Normal case: add to hand as a CardInstance
+            var ci = new CardInstance(picked, ownerIdForEffect);
+            hand.Add(ci);
+
+            var logger = ActionLogService.Instance;
+            if (logger != null)
+            {
+                string callerName = string.IsNullOrEmpty(caller.cardName) ? caller.name : caller.cardName;
+                string foundName = string.IsNullOrEmpty(picked.cardName) ? picked.name : picked.cardName;
+                logger.CardLocal(
+                    $"When {callerName} was Called, you searched the deck and added {foundName} to your hand.",
+                    picked.artSprite,
+                    picked
+                );
+            }
+
+            // Update hand UI
+            PushHandToView();
+        }
+
         public void ResolveRefillManaSpell(CardSO spell, int ownerIdForEffect)
         {
             if (spell == null)
