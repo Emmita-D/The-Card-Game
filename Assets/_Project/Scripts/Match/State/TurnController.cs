@@ -48,6 +48,9 @@ namespace Game.Match.State
         private readonly List<CardInstance> hand = new();
         private int turnIndex = 0;
 
+        // Once-per-turn flags (per controller/owner)
+        private bool hasUsedSavageReturnSearchThisTurn = false;
+
         // Events
         public event Action<CardInstance> OnCardDiscarded;
         public event Action<int> OnTurnStarted;
@@ -58,6 +61,52 @@ namespace Game.Match.State
         public int TurnIndex => turnIndex;
         public int DeckCount => deck.Count;
         public int HandCount => hand.Count;
+
+        /// <summary>
+        /// Returns true if this controller's owner can use the
+        /// "Return 3 units → search up to 2 Savage Magic" spell this turn.
+        /// </summary>
+        public bool CanUseSavageReturnSearch(int ownerIdForEffect)
+        {
+            // This TurnController instance manages a single owner (ownerId).
+            if (ownerIdForEffect != ownerId)
+                return false;
+
+            return !hasUsedSavageReturnSearchThisTurn;
+        }
+
+        /// <summary>
+        /// Marks the special Savage return/search spell as used for this turn.
+        /// </summary>
+        public void MarkSavageReturnSearchUsed(int ownerIdForEffect)
+        {
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            hasUsedSavageReturnSearchThisTurn = true;
+        }
+
+        /// <summary>
+        /// Returns a snapshot list of all unit cards currently in this player's hand.
+        /// </summary>
+        public List<CardInstance> GetUnitCardsInHand(int ownerIdForEffect)
+        {
+            var result = new List<CardInstance>();
+
+            if (ownerIdForEffect != ownerId)
+                return result;
+
+            foreach (var ci in hand)
+            {
+                if (ci == null || ci.data == null)
+                    continue;
+
+                if (ci.data.type == CardType.Unit)
+                    result.Add(ci);
+            }
+
+            return result;
+        }
 
         void Awake()
         {
@@ -137,6 +186,9 @@ namespace Game.Match.State
             timer?.StartTurnTimer();
 
             turnIndex++;
+
+            // Reset once-per-turn spell usage flags.
+            hasUsedSavageReturnSearchThisTurn = false;
 
             // Bump/refill mana every turn (including turn 1 if bumpOnFirstTurn)
             bool doOps = (turnIndex > 1) || bumpOnFirstTurn;
@@ -370,6 +422,90 @@ namespace Game.Match.State
         }
 
         /// <summary>
+        /// Returns a snapshot list of all Savage Magic cards currently in this player's deck.
+        /// The deck queue is not modified.
+        /// </summary>
+        public List<CardSO> GetSavageMagicCardsInDeck(int ownerIdForEffect)
+        {
+            var result = new List<CardSO>();
+
+            if (ownerIdForEffect != ownerId)
+                return result;
+
+            foreach (var so in deck)
+            {
+                if (so == null)
+                    continue;
+
+                if (so.type == CardType.Spell && so.isSavageMagic)
+                    result.Add(so);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the given unit card instances from hand back into this player's deck.
+        /// Cards are placed on the bottom of the deck (they will be drawn later).
+        /// Returns the number of cards successfully returned.
+        /// </summary>
+        public int ReturnUnitCardsToDeck(List<CardInstance> cardsToReturn, int ownerIdForEffect)
+        {
+            if (cardsToReturn == null || cardsToReturn.Count == 0)
+                return 0;
+
+            if (ownerIdForEffect != ownerId)
+            {
+                Debug.LogWarning("[Turn] ReturnUnitCardsToDeck called with mismatched ownerId.");
+                return 0;
+            }
+
+            int removedCount = 0;
+
+            foreach (var ci in cardsToReturn)
+            {
+                if (ci == null || ci.data == null)
+                    continue;
+
+                if (ci.data.type != CardType.Unit)
+                {
+                    Debug.LogWarning("[Turn] ReturnUnitCardsToDeck: tried to return a non-unit card as a unit cost.");
+                    continue;
+                }
+
+                bool removed = hand.Remove(ci);
+                if (!removed)
+                {
+                    Debug.LogWarning("[Turn] ReturnUnitCardsToDeck: card was not found in hand.");
+                    continue;
+                }
+
+                // Place the underlying CardSO on the bottom of the deck.
+                deck.Enqueue(ci.data);
+                removedCount++;
+            }
+
+            if (removedCount > 0)
+            {
+                PushHandToView();
+
+                var logger = ActionLogService.Instance;
+                if (logger != null)
+                {
+                    logger.SystemCard(
+                        $"Returned {removedCount} unit card(s) from your hand to the bottom of your deck as a cost."
+                    );
+                }
+
+                Debug.Log(
+                    $"[Turn] ReturnUnitCardsToDeck: returned {removedCount} unit card(s) to deck bottom. New hand={hand.Count}, deck={deck.Count}"
+                );
+            }
+
+            return removedCount;
+        }
+
+        /// <summary>
         /// Called when a unit with an on-call Vorg'co search effect is successfully Called
         /// on the CardPhase board. Searches this player's deck for the first unit card
         /// with Race.Vorgco, removes it from the deck, and adds it to hand (or graveyard
@@ -524,6 +660,204 @@ namespace Game.Match.State
             PushHandToView();
         }
 
+        /// <summary>
+        /// Resolves the custom Savage spell:
+        /// "Return 3 unit cards from your hand to your deck to search up to 2 Savage Magic spells (once per turn)."
+        /// Cost payment is done via HandSelectionController selecting exactly 3 unit cards from hand.
+        /// </summary>
+        public void ResolveSavageReturnSearchSpell(CardSO spell, int ownerIdForEffect)
+        {
+            if (spell == null)
+                return;
+
+            if (ownerIdForEffect != ownerId)
+            {
+                Debug.LogWarning("[Turn] ResolveSavageReturnSearchSpell called for non-owner TurnController.");
+                return;
+            }
+
+            // Once-per-turn gate.
+            if (!CanUseSavageReturnSearch(ownerIdForEffect))
+            {
+                Debug.Log("[Turn] ResolveSavageReturnSearchSpell: already used this effect this turn. Ignoring.");
+                var loggerUsed = ActionLogService.Instance;
+                if (loggerUsed != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerUsed.SystemCard($"You have already activated {spellName} this turn. The effect does nothing.");
+                }
+                return;
+            }
+
+            // Check we have at least 3 unit cards in hand.
+            var unitCards = GetUnitCardsInHand(ownerIdForEffect);
+            if (unitCards.Count < 3)
+            {
+                Debug.Log("[Turn] ResolveSavageReturnSearchSpell: not enough unit cards in hand to pay cost.");
+                var loggerFew = ActionLogService.Instance;
+                if (loggerFew != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerFew.SystemCard($"Tried to cast {spellName}, but you don't have at least 3 unit cards in hand to pay the cost.");
+                }
+                return;
+            }
+
+            var handSel = HandSelectionController.Instance;
+            if (handSel == null)
+            {
+                Debug.LogWarning("[Turn] ResolveSavageReturnSearchSpell: no HandSelectionController in scene. Cannot start cost selection.");
+                return;
+            }
+
+            // Log that we're entering cost selection mode.
+            var logger = ActionLogService.Instance;
+            if (logger != null)
+            {
+                string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                logger.SystemCard($"Select 3 unit cards in your hand to return to your deck as a cost for {spellName}.");
+            }
+
+            Debug.Log("[Turn] ResolveSavageReturnSearchSpell: starting hand selection for 3 unit cards.");
+
+            // Begin selection of exactly 3 unit cards as the cost.
+            handSel.BeginUnitCostSelection(ownerIdForEffect, 3, chosenCards =>
+            {
+                if (chosenCards == null || chosenCards.Count < 3)
+                {
+                    Debug.LogWarning("[Turn] SavageReturnSearch: selection callback with < 3 cards. Cost not paid.");
+                    return;
+                }
+
+                int removed = ReturnUnitCardsToDeck(chosenCards, ownerIdForEffect);
+                if (removed < 3)
+                {
+                    Debug.LogWarning($"[Turn] SavageReturnSearch: only {removed}/3 selected unit cards were actually returned to deck. Aborting effect.");
+                    return;
+                }
+
+                // Cost successfully paid → mark once-per-turn usage.
+                MarkSavageReturnSearchUsed(ownerIdForEffect);
+
+                // Now resolve the actual deck search for up to 2 Savage Magic spells.
+                ResolveSavageMagicSearchAfterCost(spell, ownerIdForEffect);
+            });
+        }
+        /// <summary>
+        /// After the 3-unit cost has been paid, search the deck for up to 2 "Savage Magic" spells:
+        /// Spell cards with isSavageMagic == true.
+        /// Adds them to hand if there is space; otherwise sends them to graveyard.
+        /// </summary>
+        private void ResolveSavageMagicSearchAfterCost(CardSO spell, int ownerIdForEffect)
+        {
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            if (deck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageMagicSearchAfterCost: deck empty, nothing to search.");
+                var loggerEmpty = ActionLogService.Instance;
+                if (loggerEmpty != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerEmpty.SystemCard($"Paid the cost for {spellName}, but your deck is empty.");
+                }
+                return;
+            }
+
+            // Copy queue -> list so we can remove exactly 2 matching cards and rebuild in the same order.
+            var tmp = new List<CardSO>(deck);
+            deck.Clear();
+
+            var picked = new List<CardSO>();
+
+            foreach (var card in tmp)
+            {
+                if (picked.Count < 2 &&
+                    card != null &&
+                    card.type == CardType.Spell &&
+                    card.isSavageMagic)
+                {
+                    picked.Add(card);
+                    continue; // don't re-enqueue this one
+                }
+
+                deck.Enqueue(card);
+            }
+
+            if (picked.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageMagicSearchAfterCost: no Savage Magic spells found in deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerNone.SystemCard($"Paid the cost for {spellName}, but found no Savage Magic spells in your deck.");
+                }
+                return;
+            }
+
+            var gy = GraveyardService.Instance;
+            var logger = ActionLogService.Instance;
+
+            foreach (var card in picked)
+            {
+                if (card == null)
+                    continue;
+
+                // If hand is full, we burn the searched card to graveyard (same behaviour as ResolveSearchSpell).
+                if (hand.Count >= handMax)
+                {
+                    Debug.Log(
+                        $"[Turn] ResolveSavageMagicSearchAfterCost: hand full ({hand.Count}/{handMax}), cannot add searched card {card.cardName}. Sending to graveyard."
+                    );
+
+                    if (logger != null)
+                    {
+                        string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                        string foundName = string.IsNullOrEmpty(card.cardName) ? card.name : card.cardName;
+                        logger.SystemCard(
+                            $"Paid the cost for {spellName}, found {foundName} but your hand is full. The card was sent to the graveyard."
+                        );
+                    }
+
+                    if (gy != null)
+                        gy.Add(ownerIdForEffect, card);
+
+                    continue;
+                }
+
+                // Normal case: add to hand as a CardInstance
+                var ci = new CardInstance(card, ownerIdForEffect);
+                hand.Add(ci);
+
+                Debug.Log($"[Turn] ResolveSavageMagicSearchAfterCost: added Savage Magic {card.cardName} to hand. hand={hand.Count}/{handMax}");
+            }
+
+            // Finally, push hand changes to the UI.
+            PushHandToView();
+
+            if (logger != null)
+            {
+                string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+
+                if (picked.Count == 1)
+                {
+                    string foundName = string.IsNullOrEmpty(picked[0].cardName) ? picked[0].name : picked[0].cardName;
+                    logger.SystemCard(
+                        $"Paid the cost for {spellName} and added {foundName} (Savage Magic) to your hand."
+                    );
+                }
+                else
+                {
+                    string n1 = string.IsNullOrEmpty(picked[0].cardName) ? picked[0].name : picked[0].cardName;
+                    string n2 = string.IsNullOrEmpty(picked[1].cardName) ? picked[1].name : picked[1].cardName;
+                    logger.SystemCard(
+                        $"Paid the cost for {spellName} and added {n1} and {n2} (Savage Magic) to your hand."
+                    );
+                }
+            }
+        }
         public void ResolveRefillManaSpell(CardSO spell, int ownerIdForEffect)
         {
             if (spell == null)

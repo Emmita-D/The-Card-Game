@@ -12,7 +12,7 @@ using Game.Match.Log;
 using Game.Match.Traps;
 
 
-public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
+public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IPointerClickHandler
 {
     [Header("Runtime (set by HandView)")]
     public CardInstance instance;
@@ -71,6 +71,14 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnBeginDrag(PointerEventData e)
     {
+        // Block dragging while a hand selection cost is active.
+        var handSel = HandSelectionController.Instance;
+        if (handSel != null && handSel.IsSelecting)
+        {
+            Debug.Log("[DraggableCard] Drag blocked because hand selection mode is active.");
+            return;
+        }
+
         // If the CardPhase target selection is active, do not allow playing other cards
         // until the player has chosen a target or cancelled the selection.
         var selection = CardPhaseTargetSelectionController.Instance;
@@ -118,13 +126,19 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnDrag(PointerEventData e)
     {
+        // Block dragging movement while a hand selection cost is active.
+        var handSel = HandSelectionController.Instance;
+        if (handSel != null && handSel.IsSelecting)
+        {
+            return;
+        }
+
         // If a CardPhase target selection is active, ignore drag movement.
         var selection = CardPhaseTargetSelectionController.Instance;
         if (selection != null && selection.IsSelecting)
         {
             return;
         }
-
         // Keep affordability up to date while dragging
         if (PreviewIsUnit && aff != null)
             PreviewAffordable = aff.ComputeAffordableNow();
@@ -152,6 +166,16 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         PreviewIsUnit = false;
         PreviewAffordable = true;
 
+        // If a hand selection cost is active, do not allow this drag to result
+        // in playing the card. Just snap it back to the hand.
+        var handSel = HandSelectionController.Instance;
+        if (handSel != null && handSel.IsSelecting)
+        {
+            Debug.Log("[DraggableCard] OnEndDrag blocked because hand selection mode is active; snapping card back.");
+            SnapBack();
+            return;
+        }
+
         // If a CardPhase target selection is active, do not allow this drag to result
         // in playing the card. Just snap it back to the hand.
         var selection = CardPhaseTargetSelectionController.Instance;
@@ -161,7 +185,6 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             SnapBack();
             return;
         }
-
         if (instance == null || grid == null) { SnapBack(); return; }
         var so = instance.data;
         bool isUnit = (so.type == CardType.Unit);
@@ -210,6 +233,21 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
                 if (so != null)
                 {
+                    // Special case: once-per-turn Savage spell that returns 3 units to search Savage Magic.
+                    if (so.type == CardType.Spell && so.onCallReturn3UnitsSearch2SavageMagic)
+                    {
+                        // If we've already used this effect this turn, do NOT consume the card.
+                        TurnController effectiveTurn = turn;
+                        if (effectiveTurn == null)
+                            effectiveTurn = FindObjectOfType<TurnController>();
+
+                        if (effectiveTurn != null && !effectiveTurn.CanUseSavageReturnSearch(ownerId))
+                        {
+                            Debug.Log("[DraggableCard] Tried to cast Savage return/search spell again this turn. Refusing and snapping back to hand.");
+                            SnapBack();
+                            return;
+                        }
+                    }
                     if (so.type == CardType.Spell)
                     {
                         CardEffectRunner.RunOnSpellResolved(so, ownerId);
@@ -488,5 +526,21 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         // Destroy the UI card
         Destroy(gameObject);
+    }
+    /// <summary>
+    /// Forward simple clicks to the HandSelectionController when a hand selection
+    /// (e.g., pay cost with unit cards) is active.
+    /// </summary>
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        var sel = HandSelectionController.Instance;
+        if (sel == null || !sel.IsSelecting)
+            return;
+
+        if (instance == null || instance.data == null)
+            return;
+
+        Debug.Log($"[DraggableCard] Click on {instance.data.cardName} while hand selection is active; forwarding to HandSelectionController.");
+        sel.TrySelectCard(this);
     }
 }

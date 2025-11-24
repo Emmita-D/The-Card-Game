@@ -26,6 +26,8 @@ MonoBehaviour:
   spellBuffDurationSeconds: 0
   spellBuffAttackCount: 0
   spellBuffTurnCount: 0
+  isSavageMagic: 1
+  onCallReturn3UnitsSearch2SavageMagic: 0
   trapEffect: 2
   trapDamageAmount: 0
   trapHpThresholdFraction: 0
@@ -41,11 +43,17 @@ MonoBehaviour:
   health: 1
   attackMode: 0
   rangeMeters: 0
+  onCallTargeting: 0
+  onCallSavageStacksToChosenTarget: 0
+  onCallSearchVorgcoUnit: 0
+  onCallSearchVorgcoMagic: 0
   isSavageArchetype: 1
   savageStacksOnKill: 0
   savageStacksOnVorgcoDeath: 0
   savageStacksOnLowHealth: 0
   savageStacksOnDeathToSavage: 0
+  lowHpAllyHealAmount: 0
+  lowHpAllyHealCooldownSeconds: 0
   movement: 0
   chaseRangeMultiplier: 3
   frontArcDotThreshold: 0.2

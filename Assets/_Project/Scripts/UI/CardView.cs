@@ -89,6 +89,13 @@ public class CardView : MonoBehaviour
     [SerializeField] private Sprite raceEmpyrean, raceInfernum;
     [SerializeField] private Sprite effectBgEmpyrean, effectBgInfernum;
 
+    [Header("Hand selection highlight")]
+    [SerializeField] private Image handSelectionHighlight;
+
+    // Runtime-created overlay for hand selection highlight
+    private GameObject handSelectionOverlay;
+    private Image handSelectionOverlayImage;
+
     [System.Serializable]
     public class SizeIconSet
     {
@@ -161,6 +168,9 @@ public class CardView : MonoBehaviour
     }
     public void Bind(CardSO so)
     {
+        // Always start with no hand-selection highlight
+        ResetHandSelectionHighlight();
+
         BoundSO = so;
         if (title) title.text = GetString(so, "cardName", "title", "name") ?? "(Card)";
         if (art) art.sprite = GetSprite(so, "artSprite", "art", "sprite", "cardArt", "illustration", "image");
@@ -394,5 +404,94 @@ public class CardView : MonoBehaviour
         w = GetInt(so, "sizeW", "widthTiles", "footprintW", "w");
         h = GetInt(so, "sizeH", "heightTiles", "footprintH", "h");
         if (w <= 0) w = 1; if (h <= 0) h = 1;
+    }
+    // ------------- Hand selection highlight (frame-color + scale) -------------
+
+    // We do not rely on any prefab overlay here; we just tweak the frame color and scale.
+    private bool hasStoredSelectionFrameColor;
+    private Color storedSelectionFrameColor;
+
+    /// <summary>
+    /// Turn off any hand selection highlight (candidate or selected).
+    /// </summary>
+    public void ResetHandSelectionHighlight()
+    {
+        // Restore original frame color if we previously changed it
+        if (hasStoredSelectionFrameColor && frame != null)
+        {
+            frame.color = storedSelectionFrameColor;
+        }
+
+        hasStoredSelectionFrameColor = false;
+
+        // Reset any scale tweaks
+        transform.localScale = Vector3.one;
+    }
+
+    /// <summary>
+    /// Helper to store the original frame color the first time we highlight.
+    /// </summary>
+    private void EnsureStoredSelectionFrameColor()
+    {
+        if (!hasStoredSelectionFrameColor && frame != null)
+        {
+            storedSelectionFrameColor = frame.color;
+            hasStoredSelectionFrameColor = true;
+        }
+    }
+
+    /// <summary>
+    /// Used to mark cards that are valid candidates for a hand selection cost.
+    /// Yellow-ish frame + small scale bump.
+    /// </summary>
+    public void SetHandSelectionHighlight(bool isCandidate)
+    {
+        if (!isCandidate)
+        {
+            ResetHandSelectionHighlight();
+            return;
+        }
+
+        EnsureStoredSelectionFrameColor();
+
+        if (frame != null)
+        {
+            // Slight yellow tint to indicate "available"
+            frame.color = new Color(1f, 1f, 0.4f, 1f);
+        }
+
+        // Slight scale bump so candidates pop visually
+        transform.localScale = Vector3.one * 1.05f;
+
+        // Optional debug to confirm this is running:
+        Debug.Log($"[CardView] Candidate highlight for {(BoundSO != null ? BoundSO.cardName : name)}");
+    }
+
+    /// <summary>
+    /// Used to mark cards that have been actively chosen (picked) in the hand selection.
+    /// Green-ish frame + stronger scale bump.
+    /// </summary>
+    public void SetHandSelectionSelected(bool isSelected)
+    {
+        if (!isSelected)
+        {
+            // Fall back to candidate highlight when deselected
+            SetHandSelectionHighlight(true);
+            return;
+        }
+
+        EnsureStoredSelectionFrameColor();
+
+        if (frame != null)
+        {
+            // Green tint for selected cards
+            frame.color = new Color(0.5f, 1f, 0.5f, 1f);
+        }
+
+        // Slightly larger than candidates
+        transform.localScale = Vector3.one * 1.1f;
+
+        // Optional debug to confirm this is running:
+        Debug.Log($"[CardView] Selected highlight for {(BoundSO != null ? BoundSO.cardName : name)}");
     }
 }

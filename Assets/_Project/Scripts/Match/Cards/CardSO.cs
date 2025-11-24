@@ -77,6 +77,13 @@ namespace Game.Match.Cards
         public int spellBuffAttackCount = 0;
         public int spellBuffTurnCount = 0;
 
+        [Header("Savage Magic (if Spell)")]
+        [Tooltip("If true, this spell is treated as a 'Savage Magic' card for search / tutor effects.")]
+        public bool isSavageMagic = false;
+
+        [Tooltip("If true, when this spell is played it runs the effect: 'Return 3 unit cards from hand to deck to search up to 2 Savage Magic cards (once per turn per player)'.")]
+        public bool onCallReturn3UnitsSearch2SavageMagic = false;
+
         [Header("Trap (if Trap)")]
         [Tooltip("Simple v1 effect used by TrapService for traps.")]
         public TrapEffectKind trapEffect = TrapEffectKind.None;

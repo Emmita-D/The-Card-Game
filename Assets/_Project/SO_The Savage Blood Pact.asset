@@ -10,23 +10,24 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
-  m_Name: SO_Savage Warcry
+  m_Name: SO_The Savage Blood Pact
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: Savage Warcry
-  rulesText: Buff a random unit in hand
+  cardName: The Savage Blood Pact
+  rulesText: Return 3 unit cards to the Deck to search for 2 Savage Magic cards.
+    Can only be activated once per turn.
   type: 1
   realm: 1
   race: 1
-  spellEffect: 3
-  spellSearchRealmFilter: 1
-  spellBuffAttackAmount: 50
-  spellBuffHealthAmount: 50
-  spellBuffLifetimeKind: 3
+  spellEffect: 0
+  spellSearchRealmFilter: 0
+  spellBuffAttackAmount: 2
+  spellBuffHealthAmount: 2
+  spellBuffLifetimeKind: 0
   spellBuffDurationSeconds: 0
   spellBuffAttackCount: 0
-  spellBuffTurnCount: 2
+  spellBuffTurnCount: 0
   isSavageMagic: 1
-  onCallReturn3UnitsSearch2SavageMagic: 0
+  onCallReturn3UnitsSearch2SavageMagic: 1
   trapEffect: 0
   trapDamageAmount: 100
   trapHpThresholdFraction: 0.5
@@ -54,13 +55,13 @@ MonoBehaviour:
   lowHpAllyHealAmount: 0
   lowHpAllyHealCooldownSeconds: 0
   movement: 0
-  chaseRangeMultiplier: 5
+  chaseRangeMultiplier: 3
   frontArcDotThreshold: 0.2
   canAttackGroundUnits: 1
   canAttackFlyingUnits: 1
   canAttackTowers: 1
   isDiveFlier: 0
-  artSprite: {fileID: 21300000, guid: 3a70e772f51932b4da6e5cbbe9be41c2, type: 3}
+  artSprite: {fileID: 21300000, guid: 748d87e981d2fa24984ef57425bc7ed5, type: 3}
   unitPrefab: {fileID: 0}
   isLegend: 0
   realmBonusVsOpposingMultiplier: 1
