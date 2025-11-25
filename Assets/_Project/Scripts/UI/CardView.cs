@@ -405,9 +405,9 @@ public class CardView : MonoBehaviour
         h = GetInt(so, "sizeH", "heightTiles", "footprintH", "h");
         if (w <= 0) w = 1; if (h <= 0) h = 1;
     }
-    // ------------- Hand selection highlight (frame-color + scale) -------------
+    // ------------- Hand selection highlight (frame-color + overlay + scale) -------------
 
-    // We do not rely on any prefab overlay here; we just tweak the frame color and scale.
+    // We use both the frame tint and a dedicated overlay Image so this is VERY visible.
     private bool hasStoredSelectionFrameColor;
     private Color storedSelectionFrameColor;
 
@@ -424,7 +424,16 @@ public class CardView : MonoBehaviour
 
         hasStoredSelectionFrameColor = false;
 
-        // Reset any scale tweaks
+        // Hide overlay completely
+        if (handSelectionHighlight != null)
+        {
+            handSelectionHighlight.enabled = false;
+            var c = handSelectionHighlight.color;
+            c.a = 0f;
+            handSelectionHighlight.color = c;
+        }
+
+        // Reset any scale tweaks (even if FannedHandLayout overrides, this is safe)
         transform.localScale = Vector3.one;
     }
 
@@ -442,7 +451,7 @@ public class CardView : MonoBehaviour
 
     /// <summary>
     /// Used to mark cards that are valid candidates for a hand selection cost.
-    /// Yellow-ish frame + small scale bump.
+    /// Yellow-ish overlay + small scale bump.
     /// </summary>
     public void SetHandSelectionHighlight(bool isCandidate)
     {
@@ -454,22 +463,36 @@ public class CardView : MonoBehaviour
 
         EnsureStoredSelectionFrameColor();
 
+        // Frame tint as a fallback (in case overlay is missing)
         if (frame != null)
         {
             // Slight yellow tint to indicate "available"
             frame.color = new Color(1f, 1f, 0.4f, 1f);
         }
 
+        // Strong visual: overlay on
+        if (handSelectionHighlight != null)
+        {
+            handSelectionHighlight.enabled = true;
+            handSelectionHighlight.raycastTarget = false;
+
+            // Bright yellow with some transparency
+            handSelectionHighlight.color = new Color(1f, 1f, 0.2f, 0.45f);
+        }
+        else
+        {
+            Debug.LogWarning($"[CardView] No handSelectionHighlight overlay assigned on {name}; only frame color will change.");
+        }
+
         // Slight scale bump so candidates pop visually
         transform.localScale = Vector3.one * 1.05f;
 
-        // Optional debug to confirm this is running:
         Debug.Log($"[CardView] Candidate highlight for {(BoundSO != null ? BoundSO.cardName : name)}");
     }
 
     /// <summary>
     /// Used to mark cards that have been actively chosen (picked) in the hand selection.
-    /// Green-ish frame + stronger scale bump.
+    /// Green-ish overlay + stronger scale bump.
     /// </summary>
     public void SetHandSelectionSelected(bool isSelected)
     {
@@ -482,16 +505,29 @@ public class CardView : MonoBehaviour
 
         EnsureStoredSelectionFrameColor();
 
+        // Frame tint as a fallback
         if (frame != null)
         {
             // Green tint for selected cards
             frame.color = new Color(0.5f, 1f, 0.5f, 1f);
         }
 
+        // Strong visual: overlay on, greener and more opaque
+        if (handSelectionHighlight != null)
+        {
+            handSelectionHighlight.enabled = true;
+            handSelectionHighlight.raycastTarget = false;
+
+            handSelectionHighlight.color = new Color(0.4f, 1f, 0.4f, 0.65f);
+        }
+        else
+        {
+            Debug.LogWarning($"[CardView] No handSelectionHighlight overlay assigned on {name}; selection will only tint the frame.");
+        }
+
         // Slightly larger than candidates
         transform.localScale = Vector3.one * 1.1f;
 
-        // Optional debug to confirm this is running:
         Debug.Log($"[CardView] Selected highlight for {(BoundSO != null ? BoundSO.cardName : name)}");
     }
 }

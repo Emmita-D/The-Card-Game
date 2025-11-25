@@ -48,6 +48,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     CardAffordability aff;
     ManaPool pool;   // injected by HandView
 
+
     public void SetManaPool(ManaPool p)
     {
         pool = p;
@@ -71,6 +72,12 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnBeginDrag(PointerEventData e)
     {
+        // Do not allow dragging when this card is shown in the deck search UI.
+        if (IsInsideDeckSearchPanel())
+        {
+            SnapBack();
+            return;
+        }
         // Block dragging while a hand selection cost is active.
         var handSel = HandSelectionController.Instance;
         if (handSel != null && handSel.IsSelecting)
@@ -126,6 +133,8 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnDrag(PointerEventData e)
     {
+        if (IsInsideDeckSearchPanel())
+            return;
         // Block dragging movement while a hand selection cost is active.
         var handSel = HandSelectionController.Instance;
         if (handSel != null && handSel.IsSelecting)
@@ -157,6 +166,13 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
     public void OnEndDrag(PointerEventData e)
     {
+        // If this card is inside a deck search panel, never treat this as a real
+        // play attempt. Just snap back and bail.
+        if (IsInsideDeckSearchPanel())
+        {
+            SnapBack();
+            return;
+        }
         IsDragging = false;
         if (cg != null) { cg.blocksRaycasts = true; cg.alpha = 1f; }
 
@@ -542,5 +558,14 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         Debug.Log($"[DraggableCard] Click on {instance.data.cardName} while hand selection is active; forwarding to HandSelectionController.");
         sel.TrySelectCard(this);
+    }
+    /// <summary>
+    /// Returns true if this card is being used as a read-only preview inside the deck
+    /// search panel (e.g., Vorg'co / Savage deck search UI). In that context we do
+    /// not want to treat it as a playable hand card.
+    /// </summary>
+    private bool IsInsideDeckSearchPanel()
+    {
+        return GetComponentInParent<DeckSearchVorgcoPanel>() != null;
     }
 }

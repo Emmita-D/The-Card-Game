@@ -740,7 +740,31 @@ namespace Game.Match.State
                 MarkSavageReturnSearchUsed(ownerIdForEffect);
 
                 // Now resolve the actual deck search for up to 2 Savage Magic spells.
-                ResolveSavageMagicSearchAfterCost(spell, ownerIdForEffect);
+                // Preferred path: open the deck search UI in SavageMagic mode so the player
+                // can choose up to 2 Savage Magic spells manually.
+                var savageCandidates = GetSavageMagicCardsInDeck(ownerIdForEffect);
+                if (savageCandidates == null || savageCandidates.Count == 0)
+                {
+                    Debug.Log("[Turn] ResolveSavageReturnSearchSpell: paid cost, but found no Savage Magic spells in deck.");
+                    var loggerNone = ActionLogService.Instance;
+                    if (loggerNone != null)
+                    {
+                        string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                        loggerNone.SystemCard($"Paid the cost for {spellName}, but found no Savage Magic spells in your deck.");
+                    }
+                    return;
+                }
+
+                var searchPanel = DeckSearchVorgcoPanel.Instance;
+                if (searchPanel == null)
+                {
+                    Debug.LogWarning("[Turn] ResolveSavageReturnSearchSpell: DeckSearchVorgcoPanel not found; falling back to random search.");
+                    ResolveSavageMagicSearchAfterCost(spell, ownerIdForEffect);
+                    return;
+                }
+
+                // Open the deck search panel in SavageMagic mode, allowing the player to pick up to 2 spells.
+                searchPanel.BeginSavageMagic(spell, ownerIdForEffect, this, savageCandidates, 2);
             });
         }
         /// <summary>
@@ -1035,6 +1059,111 @@ namespace Game.Match.State
             }
 
             // Refresh hand UI so updated stats show up on the card.
+            PushHandToView();
+        }
+        /// <summary>
+        /// Applies the result of a Savage Magic deck search where the player has explicitly
+        /// chosen which Savage Magic spells to take from the deck (e.g., via a deck search UI).
+        /// Removes the chosen CardSOs from the deck, then adds them to hand if there is space,
+        /// otherwise sends them to the graveyard. Deck order for non-chosen cards is preserved.
+        /// </summary>
+        public void ResolveSavageMagicSearchPick(CardSO spell, int ownerIdForEffect, List<CardSO> chosenCards)
+        {
+            if (spell == null)
+                return;
+
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            if (chosenCards == null || chosenCards.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageMagicSearchPick: no cards were chosen; effect ends with no additional cards.");
+                return;
+            }
+
+            if (deck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageMagicSearchPick: deck empty when applying chosen cards.");
+                var loggerEmpty = ActionLogService.Instance;
+                if (loggerEmpty != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerEmpty.SystemCard($"Paid the cost for {spellName}, but your deck is empty when resolving the search.");
+                }
+                return;
+            }
+
+            // We want to remove the chosen CardSOs from the deck while preserving the relative
+            // order of all other cards.
+            var tmp = new List<CardSO>(deck);
+            deck.Clear();
+
+            var remainingToMatch = new List<CardSO>(chosenCards);
+            var pickedFromDeck = new List<CardSO>();
+
+            foreach (var card in tmp)
+            {
+                if (card != null && remainingToMatch.Contains(card))
+                {
+                    pickedFromDeck.Add(card);
+                    remainingToMatch.Remove(card);
+                    // Do not re-enqueue this one; it is being taken by the effect.
+                    continue;
+                }
+
+                deck.Enqueue(card);
+            }
+
+            if (pickedFromDeck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageMagicSearchPick: none of the chosen cards were found in the deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerNone.SystemCard($"You resolved the effect of {spellName}, but none of the chosen Savage Magic spells were found in your deck.");
+                }
+                return;
+            }
+
+            var gy = GraveyardService.Instance;
+            var logger = ActionLogService.Instance;
+
+            foreach (var card in pickedFromDeck)
+            {
+                if (card == null)
+                    continue;
+
+                // If hand is full, we burn the searched card to graveyard (same behaviour as other search effects).
+                if (hand.Count >= handMax)
+                {
+                    Debug.Log(
+                        $"[Turn] ResolveSavageMagicSearchPick: cannot add searched card {card.cardName}. Sending to graveyard."
+                    );
+
+                    if (logger != null)
+                    {
+                        string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                        string foundName = string.IsNullOrEmpty(card.cardName) ? card.name : card.cardName;
+                        logger.SystemCard(
+                            $"Paid the cost for {spellName}, found {foundName} but your hand is full. The card was sent to the graveyard."
+                        );
+                    }
+
+                    if (gy != null)
+                        gy.Add(ownerIdForEffect, card);
+
+                    continue;
+                }
+
+                // Normal case: add to hand as a CardInstance
+                var ci = new CardInstance(card, ownerIdForEffect);
+                hand.Add(ci);
+
+                Debug.Log($"[Turn] ResolveSavageMagicSearchPick: added Savage Magic {card.cardName} to hand. hand={hand.Count}/{handMax}");
+            }
+
+            // Finally, push hand changes to the UI.
             PushHandToView();
         }
 
