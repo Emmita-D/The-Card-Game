@@ -4913,8 +4913,12 @@ MonoBehaviour:
   - {fileID: 11400000, guid: beb90a377a8ce8041809884dc9f14b7f, type: 2}
   - {fileID: 11400000, guid: beb90a377a8ce8041809884dc9f14b7f, type: 2}
   - {fileID: 11400000, guid: beb90a377a8ce8041809884dc9f14b7f, type: 2}
-  - {fileID: 11400000, guid: beb90a377a8ce8041809884dc9f14b7f, type: 2}
-  - {fileID: 11400000, guid: beb90a377a8ce8041809884dc9f14b7f, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0

@@ -385,9 +385,24 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             {
                 int ownerId = (instance != null) ? instance.ownerId : 0;
                 selectable.InitializeForCardPhase(ownerId, so, ur);
+
+                // Notify TurnController that this unit has been Called on the CardPhase grid.
+                if (turn == null)
+                    turn = FindObjectOfType<TurnController>();
+
+                if (turn != null)
+                {
+                    Debug.Log($"[DraggableCard] Notifying TurnController about unit call for Savage tracking. owner={ownerId}, unit={so.cardName}");
+                    turn.OnUnitCalledFromCardPhase(so, ownerId);
+                }
+                else
+                {
+                    Debug.LogWarning("[DraggableCard] Could not find TurnController to notify about unit call for Savage tracking.");
+                }
             }
 
             go.name = so.cardName + $"_{origin.x}_{origin.y}";
+
             // If this card has an On-Call targeting requirement (v1),
             // start CardPhase target selection so the player can choose a recipient.
             if (so != null

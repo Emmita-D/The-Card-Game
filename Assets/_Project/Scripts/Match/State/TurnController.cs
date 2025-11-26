@@ -51,6 +51,12 @@ namespace Game.Match.State
         // Once-per-turn flags (per controller/owner)
         private bool hasUsedSavageReturnSearchThisTurn = false;
 
+        /// <summary>
+        /// True if this controller's owner has called at least one Savage unit
+        /// (isSavageArchetype = true) on the CardPhase grid during the current turn.
+        /// </summary>
+        private bool hasCalledSavageUnitThisTurn = false;
+
         // Events
         public event Action<CardInstance> OnCardDiscarded;
         public event Action<int> OnTurnStarted;
@@ -84,6 +90,63 @@ namespace Game.Match.State
                 return;
 
             hasUsedSavageReturnSearchThisTurn = true;
+        }
+
+        /// <summary>
+        /// Returns true if this controller's owner has called at least one
+        /// Savage unit (isSavageArchetype = true) this turn.
+        /// </summary>
+        public bool HasCalledSavageUnitThisTurn(int ownerIdForEffect)
+        {
+            // This TurnController instance manages a single owner (ownerId).
+            if (ownerIdForEffect != ownerId)
+                return false;
+
+            return hasCalledSavageUnitThisTurn;
+        }
+
+        /// <summary>
+        /// Convenience wrapper: returns the flag for THIS controller's owner,
+        /// without needing to pass an ownerId.
+        /// </summary>
+        public bool HasCalledSavageUnitThisTurn()
+        {
+            return hasCalledSavageUnitThisTurn;
+        }
+
+        /// <summary>
+        /// Notifies this TurnController that a unit has been Called on the
+        /// CardPhase grid. Used to track once-per-turn Savage-unit conditions.
+        /// </summary>
+        public void OnUnitCalledFromCardPhase(CardSO unitData, int ownerIdForEffect)
+        {
+            if (unitData == null)
+                return;
+
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            bool isSavage = unitData.isSavageArchetype;
+
+            string unitName = string.IsNullOrEmpty(unitData.cardName)
+                ? unitData.name
+                : unitData.cardName;
+
+            if (isSavage)
+            {
+                hasCalledSavageUnitThisTurn = true;
+                Debug.Log(
+                    $"[Turn] OnUnitCalledFromCardPhase: owner={ownerId} summoned Savage unit {unitName}; " +
+                    "hasCalledSavageUnitThisTurn set to TRUE."
+                );
+            }
+            else
+            {
+                Debug.Log(
+                    $"[Turn] OnUnitCalledFromCardPhase: owner={ownerId} summoned non-Savage unit {unitName}; " +
+                    "flag unchanged."
+                );
+            }
         }
 
         /// <summary>
@@ -189,6 +252,7 @@ namespace Game.Match.State
 
             // Reset once-per-turn spell usage flags.
             hasUsedSavageReturnSearchThisTurn = false;
+            hasCalledSavageUnitThisTurn = false;
 
             // Bump/refill mana every turn (including turn 1 if bumpOnFirstTurn)
             bool doOps = (turnIndex > 1) || bumpOnFirstTurn;

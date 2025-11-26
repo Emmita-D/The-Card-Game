@@ -139,6 +139,10 @@ public class CardView : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float unaffordableAlpha = 0.45f;
     int costCached = 0;
     bool lastAffordable = true;
+
+    // Dynamic cost override from CardAffordability (per instance).
+    // If < 0, we fall back to the printed manaStars from the CardSO.
+    private int displayedCostOverride = -1;
     // --------------------------------------------
     public CardSO BoundSO { get; private set; }
 
@@ -317,13 +321,12 @@ public class CardView : MonoBehaviour
         }
         // ------------------------------------------
 
-        // Mana pips: units only (and use realm-specific pip sprite)
-        var pipSprite = (realm == Realm.Infernum) ? manaPipInfernum : manaPipEmpyrean;
-        BuildPips(isUnit ? GetInt(so, "manaStars", "mana", "cost", "stars") : 0, pipSprite);
+        // Mana pips & affordability cache (units only; realm-specific pip sprite)
+        // Start with no override: show the printed cost for a freshly bound card.
+        displayedCostOverride = -1;
+        RebuildManaPips();
 
-        // ---------- cache cost & update affordability ----------
-        costCached = GetInt(so, "manaStars", "mana", "cost", "stars");
-        ApplyAffordability(mana ? mana.CanAfford(costCached) : true);
+        // Keep any external affordability visual in a 'playable' state by default.
         SetAffordableVisual(true);
     }
 
@@ -375,6 +378,54 @@ public class CardView : MonoBehaviour
             g.SetActive(true);
         }
     }
+
+    /// <summary>
+    /// Rebuilds the mana pips using either the printed cost from the CardSO
+    /// or an override cost (e.g., Savage discount -> 0) if one is set.
+    /// Also updates costCached so the affordability overlay matches.
+    /// </summary>
+    void RebuildManaPips()
+    {
+        if (BoundSO == null) return;
+
+        var type = GetEnum<CardType>(BoundSO, "type") ?? CardType.Unit;
+        var realm = GetEnum<Realm>(BoundSO, "realm") ?? Realm.Empyrean;
+        bool isUnit = (type == CardType.Unit);
+
+        // Base (printed) cost from the CardSO
+        int baseCost = isUnit
+            ? GetInt(BoundSO, "manaStars", "mana", "cost", "stars")
+            : 0;
+
+        // If override is set (>= 0), use that; otherwise use the printed cost.
+        int finalCost = (displayedCostOverride >= 0)
+            ? Mathf.Max(0, displayedCostOverride)
+            : Mathf.Max(0, baseCost);
+
+        // Pick the realm-appropriate pip sprite
+        var pipSprite = (realm == Realm.Infernum) ? manaPipInfernum : manaPipEmpyrean;
+
+        BuildPips(finalCost, pipSprite);
+
+        // Keep affordability overlay in sync with the effective cost.
+        costCached = finalCost;
+        if (mana != null)
+        {
+            ApplyAffordability(mana.CanAfford(costCached));
+        }
+    }
+
+    /// <summary>
+    /// Called by CardAffordability to tell the view what effective mana cost
+    /// to display (including turn-based discounts). Pass a negative value
+    /// to clear the override and fall back to the printed cost.
+    /// </summary>
+    public void SetDisplayedCost(int effectiveCost)
+    {
+        displayedCostOverride = (effectiveCost < 0) ? -1 : effectiveCost;
+        RebuildManaPips();
+    }
+
     public void OverrideStats(int attack, int health)
     {
         // Do NOT toggle badges active here.

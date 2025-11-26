@@ -136,8 +136,12 @@ namespace Game.Match.Cards
         public bool onCallSearchVorgcoMagic;
 
         [Header("Savage (unit-only, v1)")]
-        [Tooltip("Marks this unit as part of the 'Savage' archetype for card effects (e.g., deathrattles that target Savage units only).")]
+        [Tooltip("Marks this unit as part of the 'Savage' archetype for the purposes of Savage-only cards and effects (e.g., deathrattles that target Savage units only).")]
         public bool isSavageArchetype = false;
+
+        [Tooltip("If true, and this unit is in hand, its effective mana cost becomes 0 "
+               + "whenever its owner has called at least one Savage unit during the current turn.")]
+        public bool costsZeroIfSavageUnitCalledThisTurn = false;
 
         [Tooltip("If > 0, this unit gains this many Savage stacks whenever it delivers a killing blow to an enemy unit.")]
         public int savageStacksOnKill = 0;
