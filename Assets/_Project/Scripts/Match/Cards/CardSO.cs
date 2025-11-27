@@ -45,6 +45,19 @@ namespace Game.Match.Cards
         /// </summary>
         ChosenFriendlySavageVorgco = 1,
     }
+    /// <summary>
+    /// v1 token-cost kinds for spells that spend tokens from a chosen unit on the field.
+    /// For now we only support Savage stacks, but this can be extended later.
+    /// </summary>
+    public enum FieldTokenCostKind
+    {
+        None = 0,
+
+        /// <summary>
+        /// Use SavageStatus stacks (Savage tokens) as a currency.
+        /// </summary>
+        SavageStacks = 1,
+    }
 
     [CreateAssetMenu(fileName = "NewCard", menuName = "Game/Cards/Card", order = 0)]
     public class CardSO : ScriptableObject
@@ -83,6 +96,21 @@ namespace Game.Match.Cards
 
         [Tooltip("If true, when this spell is played it runs the effect: 'Return 3 unit cards from hand to deck to search up to 2 Savage Magic cards (once per turn per player)'.")]
         public bool onCallReturn3UnitsSearch2SavageMagic = false;
+
+        [Header("Field Token Cost (Spell, v1)")]
+        [Tooltip("If not None, when this spell is played it will attempt to pay a token cost from a chosen friendly unit on the field.")]
+        public FieldTokenCostKind fieldTokenCostKind = FieldTokenCostKind.None;
+
+        [Tooltip("How many stacks of the chosen token cost this spell attempts to consume from the chosen unit.")]
+        [Min(0)]
+        public int fieldTokenCostAmount = 0;
+
+        [Tooltip("If true, after successfully paying the token cost this spell opens the deck search panel to look for Savage units.")]
+        public bool fieldTokenCostSearchSavageUnit = false;
+
+        [Tooltip("Maximum number of Savage unit cards that can be selected by the follow-up deck search after paying the token cost.")]
+        [Min(0)]
+        public int fieldTokenCostSearchSavageUnitMaxSelections = 1;
 
         [Header("Trap (if Trap)")]
         [Tooltip("Simple v1 effect used by TrapService for traps.")]

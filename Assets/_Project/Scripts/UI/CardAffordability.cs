@@ -4,12 +4,16 @@ using Game.Core;          // CardType
 using Game.Match.Mana;    // ManaPool
 using Game.Match.State;   // TurnController
 using System.Reflection;  // reflection for flexible Spend/Notify
+using System.Collections.Generic; // for cost-change logging cache
 
 [DisallowMultipleComponent]
 public class CardAffordability : MonoBehaviour
 {
     [Header("Wiring (set by HandView at runtime)")]
     [SerializeField] ManaPool pool;
+
+    [Header("Debug")]
+    [SerializeField] private bool logEffectiveCosts = false;
 
     CardView view;
     CanvasGroup cg;
@@ -20,6 +24,12 @@ public class CardAffordability : MonoBehaviour
     /// Cached TurnController for querying once-per-turn Savage flags.
     /// </summary>
     TurnController turn;
+
+    /// <summary>
+    /// Cache of last effective cost logged per CardSO to avoid log spam.
+    /// </summary>
+    readonly Dictionary<CardSO, int> _lastLoggedEffectiveCost =
+        new Dictionary<CardSO, int>();
 
     public void SetPool(ManaPool p) => pool = p;
 
@@ -49,13 +59,15 @@ public class CardAffordability : MonoBehaviour
         int baseCost = Mathf.Max(0, so.manaStars);
         int cost = baseCost;
 
+        bool usedSavageRule = false;
+        bool hasSavageThisTurn = false;
+
         // Apply "costs 0 if a Savage unit was called this turn" only when flagged.
         if (so.costsZeroIfSavageUnitCalledThisTurn)
         {
             if (turn == null)
-                turn = FindObjectOfType<TurnController>();
+                turn = Object.FindObjectOfType<TurnController>();
 
-            bool hasSavageThisTurn = false;
             if (turn != null)
             {
                 hasSavageThisTurn = turn.HasCalledSavageUnitThisTurn();
@@ -70,16 +82,31 @@ public class CardAffordability : MonoBehaviour
                 cost = 0;
             }
 
-            // Optional debug: only when this special rule is in play.
-            Debug.Log(
-                $"[CardAffordability] Effective cost for {so.cardName} " +
-                $"(SavageCostFlag={so.costsZeroIfSavageUnitCalledThisTurn}, " +
-                $"hasSavageThisTurn={hasSavageThisTurn}) => {cost} (base={baseCost})."
-            );
+            usedSavageRule = true;
+        }
+
+        // Optional debug: only when this special rule is in play, and only when
+        // the effective cost actually changes (to avoid per-frame spam).
+        if (logEffectiveCosts && usedSavageRule)
+        {
+            int last;
+            bool hasLast = _lastLoggedEffectiveCost.TryGetValue(so, out last);
+
+            if (!hasLast || last != cost)
+            {
+                _lastLoggedEffectiveCost[so] = cost;
+
+                Debug.Log(
+                    $"[CardAffordability] Effective cost for {so.cardName} " +
+                    $"(SavageCostFlag={so.costsZeroIfSavageUnitCalledThisTurn}, " +
+                    $"hasSavageThisTurn={hasSavageThisTurn}) => {cost} (base={baseCost})."
+                );
+            }
         }
 
         return cost;
     }
+
     public bool ComputeAffordableNow()
     {
         return RecalcCanPlay(out _, out bool canPlay) ? canPlay : true;
@@ -181,6 +208,7 @@ public class CardAffordability : MonoBehaviour
         {
             view.SetDisplayedCost(cost);
         }
+
         // If we have no pool wired, treat as always playable so UI does not dim.
         if (pool == null)
         {

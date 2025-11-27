@@ -2,6 +2,7 @@
 using UnityEngine;
 using Game.Core.Config;
 using Game.Match.Cards;
+using Game.Match.CardPhase;  // for CardPhaseSelectableUnit
 
 namespace Game.Match.State
 {
@@ -26,6 +27,9 @@ namespace Game.Match.State
         // NEW: per-instance buffs coming from CardInstance at placement time
         public int bonusAttack;
         public int bonusHealth;
+
+        // NEW: Savage stacks (tokens) carried by this unit across phases
+        public int savageStacks;
     }
     /// <summary>
     /// Full description of what each side sends into the battle stage.
@@ -158,6 +162,8 @@ namespace Game.Match.State
                 public int ownerId;
                 public Cards.CardSO card;
                 public Vector3 originWorld; // CardPhase center-of-footprint position
+                // NEW: Savage stacks this unit had at the end of battle
+                public int savageStacks;
             }
 
             private readonly List<Survivor> _pending = new();
@@ -179,11 +185,18 @@ namespace Game.Match.State
                     var stamp = a.GetComponent<Game.Match.Battle.UnitOriginStamp>();
                     if (stamp == null || stamp.sourceCard == null) continue;
 
+                    int savageStacks = 0;
+                    if (rt.StatusController != null)
+                    {
+                        savageStacks = rt.StatusController.GetSavageStacks();
+                    }
+
                     _pending.Add(new Survivor
                     {
                         ownerId = ownerId,
                         card = stamp.sourceCard,
-                        originWorld = stamp.cardPhaseWorld   // center-of-footprint from CardPhase
+                        originWorld = stamp.cardPhaseWorld,  // center-of-footprint from CardPhase
+                        savageStacks = savageStacks
                     });
                 }
             }
@@ -286,11 +299,41 @@ namespace Game.Match.State
                         var ur = go.GetComponent<Game.Match.Units.UnitRuntime>();
                         if (ur != null) ur.InitFrom(s.card);
 
+                        // NEW: restore Savage stacks from survivor data
+                        if (ur != null && ur.StatusController != null && s.savageStacks > 0)
+                        {
+                            ur.StatusController.AddSavageStacks(s.savageStacks);
+                            UnityEngine.Debug.Log(
+                                $"[SurvivorRegistry] Restored {s.savageStacks} Savage stacks to {s.card.cardName} (owner={s.ownerId}) on CardPhase."
+                            );
+                        }
+
                         // Optional but harmless: attach graveyard relay for future kills in CardPhase
                         var gy = go.GetComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
                         if (gy == null) gy = go.AddComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
                         gy.source = s.card;
                         gy.ownerId = s.ownerId;
+
+                        // Attach CardPhaseSelectableUnit so returned units can be targeted in CardPhase
+                        CardPhaseSelectableUnit selectable = null;
+                        if (col != null)
+                        {
+                            selectable = col.GetComponent<CardPhaseSelectableUnit>();
+                            if (selectable == null)
+                                selectable = col.gameObject.AddComponent<CardPhaseSelectableUnit>();
+                        }
+                        else
+                        {
+                            selectable = go.GetComponent<CardPhaseSelectableUnit>();
+                            if (selectable == null)
+                                selectable = go.AddComponent<CardPhaseSelectableUnit>();
+                        }
+
+                        if (selectable != null)
+                        {
+                            selectable.InitializeForCardPhase(s.ownerId, s.card, ur);
+                            Debug.Log($"[SurvivorRegistry] Added CardPhaseSelectableUnit to returned unit {go.name}, owner={s.ownerId}.");
+                        }
                     }
 
                     if (s.ownerId == 0) a++;

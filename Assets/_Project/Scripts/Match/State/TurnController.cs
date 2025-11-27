@@ -1,5 +1,6 @@
 ﻿using Game.Core;
 using Game.Match.Battle;     // CardPhaseBattleLauncher
+using Game.Match.CardPhase;
 using Game.Match.Cards;
 using Game.Match.Graveyard;
 using Game.Match.Log;
@@ -22,6 +23,7 @@ namespace Game.Match.State
         [SerializeField] private CardPhaseBattleLauncher battleLauncher; // drag CardPhaseBattleLauncher here
         [SerializeField] private bool autoStart = true;
         [SerializeField] private Game.Match.Mana.ManaPool[] manaPools;
+        [SerializeField] private CardPhaseTargetSelectionController cardPhaseTargetSelectionController; // drag CardPhaseTargetSelectionController here
 
         [Header("Deck & Hand")]
         [SerializeField] private List<CardSO> deckList = new();
@@ -113,6 +115,21 @@ namespace Game.Match.State
         {
             return hasCalledSavageUnitThisTurn;
         }
+
+        // --- Token-cost v1 state (spend stacks from a chosen friendly unit) ---
+
+        /// <summary>
+        /// True while we are waiting for the player to choose a unit to pay a token cost.
+        /// Prevents overlapping requests.
+        /// </summary>
+        private bool isResolvingTokenCost;
+
+        /// <summary>
+        /// How many stacks this pending token-cost request is trying to spend from the chosen unit.
+        /// For our first use-case this will typically be 2 (use 2 Savage tokens).
+        /// </summary>
+        private int pendingTokenCostStacks;
+        private FieldTokenCostKind pendingTokenCostKind = FieldTokenCostKind.None;
 
         /// <summary>
         /// Notifies this TurnController that a unit has been Called on the
@@ -509,6 +526,29 @@ namespace Game.Match.State
         }
 
         /// <summary>
+        /// Returns all unit cards in this controller's deck that belong to the Savage archetype.
+        /// Used by token-cost spells that search for Savage units.
+        /// </summary>
+        public List<CardSO> GetSavageUnitCardsInDeck(int ownerIdForEffect)
+        {
+            var result = new List<CardSO>();
+
+            if (ownerIdForEffect != ownerId)
+                return result;
+
+            foreach (var so in deck)
+            {
+                if (so == null)
+                    continue;
+
+                if (so.type == CardType.Unit && so.isSavageArchetype)
+                    result.Add(so);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Returns the given unit card instances from hand back into this player's deck.
         /// Cards are placed on the bottom of the deck (they will be drawn later).
         /// Returns the number of cards successfully returned.
@@ -722,6 +762,235 @@ namespace Game.Match.State
 
             // Update hand UI
             PushHandToView();
+        }
+
+        /// <summary>
+        /// Starts a token-cost selection using the CardPhaseTargetSelectionController.
+        /// v1: only supports FieldTokenCostKind.SavageStacks and a single chosen friendly unit.
+        ///
+        /// This method does NOT handle any follow-up effect yet. It only:
+        /// - lets the player choose a unit that can pay the cost,
+        /// - and then attempts to spend the required stacks from that unit.
+        /// </summary>
+        private void RequestTokenCostFromFriendlyUnit(
+            CardInstance sourceSpell,
+            FieldTokenCostKind costKind,
+            int requiredStacks)
+        {
+            if (sourceSpell == null || sourceSpell.data == null)
+            {
+                UnityEngine.Debug.LogWarning("[TokenCost] RequestTokenCostFromFriendlyUnit called with null sourceSpell.");
+                return;
+            }
+
+            if (costKind == FieldTokenCostKind.None || requiredStacks <= 0)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] RequestTokenCostFromFriendlyUnit invalid costKind={costKind}, requiredStacks={requiredStacks} for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            if (isResolvingTokenCost)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] Already resolving a token-cost request; ignoring new request for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            // The selection controller is the same controller used for the OnCall target-selection
+            // (e.g. ChosenFriendlySavageVorgco).
+            if (cardPhaseTargetSelectionController == null)
+            {
+                UnityEngine.Debug.LogWarning("[TokenCost] No CardPhaseTargetSelectionController assigned to TurnController; cannot start token-cost selection.");
+                return;
+            }
+
+            isResolvingTokenCost = true;
+            pendingTokenCostStacks = requiredStacks;
+            pendingTokenCostKind = costKind;
+
+            UnityEngine.Debug.Log($"[TokenCost] Starting token-cost selection: spell={sourceSpell.data.cardName}, costKind={costKind}, stacks={requiredStacks}.");
+
+            cardPhaseTargetSelectionController.BeginTokenCostSelection(
+                sourceSpell,
+                costKind,
+                requiredStacks,
+                OnTokenCostUnitChosen);
+        }
+
+        /// <summary>
+        /// Callback invoked by CardPhaseTargetSelectionController when the player chooses
+        /// a unit to pay the token cost from.
+        ///
+        /// v1: We assume the cost is SavageStacks, and we simply attempt to spend
+        /// 'pendingTokenCostStacks' from the chosen unit. No follow-up effect yet.
+        /// </summary>
+        private void OnTokenCostUnitChosen(CardInstance sourceSpell, object rawTarget)
+        {
+            // We are done with the modal interaction regardless of success/failure.
+            isResolvingTokenCost = false;
+            var costKind = pendingTokenCostKind;
+            var requiredStacks = pendingTokenCostStacks;
+
+            // Reset pending cost state now that the selection has concluded.
+            pendingTokenCostKind = FieldTokenCostKind.None;
+            pendingTokenCostStacks = 0;
+
+            if (sourceSpell == null || sourceSpell.data == null)
+            {
+                UnityEngine.Debug.LogWarning("[TokenCost] OnTokenCostUnitChosen received null sourceSpell.");
+                return;
+            }
+
+            if (rawTarget == null)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] OnTokenCostUnitChosen received null target for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            var selectable = rawTarget as CardPhaseSelectableUnit;
+            if (selectable == null)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] OnTokenCostUnitChosen target is not a CardPhaseSelectableUnit (type={rawTarget.GetType().Name}) for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            var runtime = selectable.Runtime;
+            if (runtime == null || runtime.StatusController == null)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] OnTokenCostUnitChosen target={selectable.name} has no Runtime/StatusController; cannot pay token cost for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            if (requiredStacks <= 0 || costKind == FieldTokenCostKind.None)
+            {
+                UnityEngine.Debug.LogWarning($"[TokenCost] OnTokenCostUnitChosen got invalid cost config: kind={costKind}, stacks={requiredStacks} for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            bool paid = false;
+            string debugContext = $"Spell={sourceSpell.data.cardName}, owner={sourceSpell.ownerId}, target={selectable.name}";
+
+            switch (costKind)
+            {
+                case FieldTokenCostKind.SavageStacks:
+                    paid = runtime.StatusController.TrySpendSavageStacks(requiredStacks, debugContext);
+                    break;
+
+                default:
+                    UnityEngine.Debug.LogWarning($"[TokenCost] Unsupported FieldTokenCostKind={costKind} in OnTokenCostUnitChosen for spell={sourceSpell.data.cardName}.");
+                    break;
+            }
+
+            if (!paid)
+            {
+                UnityEngine.Debug.Log($"[TokenCost] Failed to pay token cost {requiredStacks} ({costKind}) from unit={selectable.name} for spell={sourceSpell.data.cardName}.");
+                return;
+            }
+
+            UnityEngine.Debug.Log($"[TokenCost] Successfully paid token cost {requiredStacks} ({costKind}) from unit={selectable.name} for spell={sourceSpell.data.cardName}.");
+
+            // Follow-up: if this spell is configured to search a Savage unit after paying the cost,
+            // trigger that flow now.
+            var data = sourceSpell.data;
+            if (data != null && data.fieldTokenCostSearchSavageUnit)
+            {
+                ResolveSavageUnitSearchFromTokenCost(data, sourceSpell.ownerId);
+            }
+        }        
+
+        /// <summary>
+        /// Convenience entrypoint for a spell that says:
+        /// "Use 2 Savage tokens from a chosen unit you control".
+        /// This just kicks off the token-cost selection and attempts to spend 2 stacks
+        /// from the chosen unit. No follow-up effect attached yet.
+        /// </summary>
+        private void ResolveUseTwoSavageTokensFromChosenUnit(CardInstance spellInstance)
+        {
+            if (spellInstance == null || spellInstance.data == null)
+            {
+                UnityEngine.Debug.LogWarning("[TokenCost] ResolveUseTwoSavageTokensFromChosenUnit called with null spellInstance.");
+                return;
+            }
+
+            // For now, we hardcode the cost-kind + amount.
+            // Later we can drive this from spellInstance.data.fieldTokenCostKind / fieldTokenCostAmount.
+            RequestTokenCostFromFriendlyUnit(
+                spellInstance,
+                FieldTokenCostKind.SavageStacks,
+                2);
+        }
+
+        /// <summary>
+        /// After successfully paying a token cost on a spell that is configured to
+        /// search for Savage units, open the deck search panel in SavageUnit mode.
+        /// </summary>
+        private void ResolveSavageUnitSearchFromTokenCost(CardSO spell, int ownerIdForEffect)
+        {
+            if (spell == null)
+                return;
+
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            // Build candidate list: Savage units in this deck.
+            var candidates = GetSavageUnitCardsInDeck(ownerIdForEffect);
+            if (candidates == null || candidates.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageUnitSearchFromTokenCost: paid cost, but found no Savage units in deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerNone.SystemCard($"Paid the cost for {spellName}, but found no Savage units in your deck.");
+                }
+                return;
+            }
+
+            var searchPanel = DeckSearchVorgcoPanel.Instance;
+            if (searchPanel == null)
+            {
+                Debug.LogWarning("[Turn] ResolveSavageUnitSearchFromTokenCost: DeckSearchVorgcoPanel not found; effect ends with no search.");
+                // Optional: you could later add a non-UI fallback here.
+                return;
+            }
+
+            int maxPicks = spell.fieldTokenCostSearchSavageUnitMaxSelections;
+            if (maxPicks <= 0)
+                maxPicks = 1;
+
+            Debug.Log($"[Turn] ResolveSavageUnitSearchFromTokenCost: opening deck search for up to {maxPicks} Savage unit(s).");
+
+            searchPanel.BeginSavageUnit(spell, ownerIdForEffect, this, candidates, maxPicks);
+        }
+
+        /// <summary>
+        /// Generic entry point for spells that pay a field token cost,
+        /// e.g. "Use 2 Savage tokens from a chosen unit you control".
+        /// Reads the cost kind/amount from the spell's CardSO and starts
+        /// the token-cost selection flow.
+        /// </summary>
+        public void ResolveFieldTokenCostSpell(CardInstance spellInstance)
+        {
+            if (spellInstance == null || spellInstance.data == null)
+            {
+                UnityEngine.Debug.LogWarning("[TokenCost] ResolveFieldTokenCostSpell called with null spellInstance.");
+                return;
+            }
+
+            var data = spellInstance.data;
+
+            if (data.fieldTokenCostKind == FieldTokenCostKind.None || data.fieldTokenCostAmount <= 0)
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[TokenCost] ResolveFieldTokenCostSpell: spell={data.cardName} has no valid field token cost configured."
+                );
+                return;
+            }
+
+            // Kick off the standard token-cost selection flow.
+            RequestTokenCostFromFriendlyUnit(
+                spellInstance,
+                data.fieldTokenCostKind,
+                data.fieldTokenCostAmount);
         }
 
         /// <summary>
@@ -1225,6 +1494,122 @@ namespace Game.Match.State
                 hand.Add(ci);
 
                 Debug.Log($"[Turn] ResolveSavageMagicSearchPick: added Savage Magic {card.cardName} to hand. hand={hand.Count}/{handMax}");
+            }
+
+            // Finally, push hand changes to the UI.
+            PushHandToView();
+        }
+
+        /// <summary>
+        /// Applies the result of a SavageUnit deck search.
+        /// Removes the chosen Savage unit CardSOs from the deck, and for each one:
+        /// - If hand is full, sends the card to graveyard.
+        /// - Otherwise, adds it to hand as a CardInstance.
+        /// </summary>
+        public void ResolveSavageUnitSearchPick(CardSO spell, int ownerIdForEffect, List<CardSO> chosenCards)
+        {
+            if (spell == null)
+                return;
+
+            if (ownerIdForEffect != ownerId)
+                return;
+
+            if (chosenCards == null || chosenCards.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageUnitSearchPick: no cards were chosen; effect ends with no additional cards.");
+                return;
+            }
+
+            if (deck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageUnitSearchPick: deck empty when applying chosen cards.");
+                var loggerEmpty = ActionLogService.Instance;
+                if (loggerEmpty != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerEmpty.SystemCard($"Paid the cost for {spellName}, but your deck is empty when resolving the search.");
+                }
+                return;
+            }
+
+            // Remove the chosen CardSOs from the deck while preserving the order of all others.
+            var tmp = new List<CardSO>(deck);
+            deck.Clear();
+
+            var remainingToMatch = new List<CardSO>(chosenCards);
+            var pickedFromDeck = new List<CardSO>();
+
+            foreach (var card in tmp)
+            {
+                if (card == null)
+                {
+                    deck.Enqueue(card);
+                    continue;
+                }
+
+                // Only match Savage unit cards; anything else stays in the deck.
+                if (remainingToMatch.Count > 0 &&
+                    card.type == CardType.Unit &&
+                    card.isSavageArchetype &&
+                    remainingToMatch.Contains(card))
+                {
+                    pickedFromDeck.Add(card);
+                    remainingToMatch.Remove(card);
+                    // Do not re-enqueue this one; it is being taken by the effect.
+                    continue;
+                }
+
+                deck.Enqueue(card);
+            }
+
+            if (pickedFromDeck.Count == 0)
+            {
+                Debug.Log("[Turn] ResolveSavageUnitSearchPick: none of the chosen cards were found in the deck.");
+                var loggerNone = ActionLogService.Instance;
+                if (loggerNone != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    loggerNone.SystemCard($"You resolved the effect of {spellName}, but none of the chosen Savage units were found in your deck.");
+                }
+                return;
+            }
+
+            var gy = GraveyardService.Instance;
+            var logger = ActionLogService.Instance;
+
+            foreach (var card in pickedFromDeck)
+            {
+                if (card == null)
+                    continue;
+
+                if (hand.Count >= handMax)
+                {
+                    Debug.Log($"[Turn] ResolveSavageUnitSearchPick: cannot add searched card {card.cardName}. Hand is full ({hand.Count}/{handMax}); sending to graveyard.");
+                    if (logger != null)
+                    {
+                        string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                        logger.SystemCard(
+                            $"Paid the cost for {spellName}, found {card.cardName} but your hand is full. The card was sent to the graveyard."
+                        );
+                    }
+
+                    if (gy != null)
+                        gy.Add(ownerIdForEffect, card);
+
+                    continue;
+                }
+
+                // Normal case: add to hand as a CardInstance
+                var ci = new CardInstance(card, ownerIdForEffect);
+                hand.Add(ci);
+
+                Debug.Log($"[Turn] ResolveSavageUnitSearchPick: added Savage unit {card.cardName} to hand. hand={hand.Count}/{handMax}");
+
+                if (logger != null)
+                {
+                    string spellName = string.IsNullOrEmpty(spell.cardName) ? spell.name : spell.cardName;
+                    logger.SystemCard($"You added Savage unit {card.cardName} to your hand with the effect of {spellName}.");
+                }
             }
 
             // Finally, push hand changes to the UI.

@@ -266,7 +266,8 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                     }
                     if (so.type == CardType.Spell)
                     {
-                        CardEffectRunner.RunOnSpellResolved(so, ownerId);
+                        // Pass the CardInstance so token-cost spells can use it.
+                        CardEffectRunner.RunOnSpellResolved(instance, ownerId);
 
                         // Spells are consumed immediately -> graveyard.
                         if (instance != null && instance.data != null)

@@ -4887,6 +4887,7 @@ MonoBehaviour:
   autoStart: 1
   manaPools:
   - {fileID: 670206535}
+  cardPhaseTargetSelectionController: {fileID: 1193467119}
   deckList:
   - {fileID: 11400000, guid: 2688b861af392eb4b9d23ff8bb3b299a, type: 2}
   - {fileID: 11400000, guid: 2688b861af392eb4b9d23ff8bb3b299a, type: 2}
@@ -4916,9 +4917,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
   - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
   - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
-  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
-  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
-  - {fileID: 11400000, guid: 9eebc7ef9a0981646b7291d2172ca849, type: 2}
+  - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
+  - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
+  - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0

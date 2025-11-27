@@ -34,11 +34,24 @@ namespace Game.Match.CardPhase
 
         // --- Selection state ---
 
+        private enum SelectionMode
+        {
+            None = 0,
+            OnCall = 1,
+            TokenCost = 2,
+        }
+
+        private SelectionMode selectionMode = SelectionMode.None;
+
         private bool isSelecting;
         private OnCallTargetingKind currentKind;
         private CardInstance sourceCard;
         private int sourceOwnerId;
-        private int pendingSavageStacks;   // specific for our first use-case
+        private int pendingSavageStacks;   // specific for our first OnCall use-case
+
+        // v1 token-cost selection state (spend stacks from a chosen unit).
+        private FieldTokenCostKind tokenCostKind = FieldTokenCostKind.None;
+        private int tokenCostRequiredStacks;
 
         /// <summary>
         /// Optional callback invoked when a valid target is chosen.
@@ -57,7 +70,11 @@ namespace Game.Match.CardPhase
         ///
         /// v1: used for "When called, give X Savage tokens to a chosen friendly Savage Vorg'co unit".
         /// </summary>
-        public void BeginOnCallSelection(CardInstance source, OnCallTargetingKind kind, int savageStacksToGive, Action<CardInstance, object> callback)
+        public void BeginOnCallSelection(
+            CardInstance source,
+            OnCallTargetingKind kind,
+            int savageStacksToGive,
+            Action<CardInstance, object> callback)
         {
             if (source == null || source.data == null)
             {
@@ -65,26 +82,72 @@ namespace Game.Match.CardPhase
                 return;
             }
 
-            if (kind == OnCallTargetingKind.None)
-            {
-                Debug.LogWarning("[CardPhaseTargetSelection] BeginOnCallSelection called with kind=None; nothing to do.");
-                return;
-            }
-
             if (isSelecting)
             {
-                Debug.LogWarning("[CardPhaseTargetSelection] Already selecting; ignoring new request.");
+                Debug.LogWarning("[CardPhaseTargetSelection] Already selecting; ignoring BeginOnCallSelection.");
                 return;
             }
 
             isSelecting = true;
+            selectionMode = SelectionMode.OnCall;
+
             currentKind = kind;
             sourceCard = source;
             sourceOwnerId = source.ownerId;
             pendingSavageStacks = savageStacksToGive;
             onTargetChosen = callback;
 
-            Debug.Log($"[CardPhaseTargetSelection] Enter selection mode. kind={kind}, stacks={savageStacksToGive}, source={source.data.cardName}");
+            Debug.Log(
+                $"[CardPhaseTargetSelection] Enter selection mode (OnCall): kind={kind}, stacks={savageStacksToGive}, source={source.data.cardName}, owner={sourceOwnerId}"
+            );
+
+            HighlightValidTargetsForCurrentSelection();
+        }
+
+        /// <summary>
+        /// Begin a selection to pay a token cost from a chosen friendly unit on the CardPhase board.
+        /// This does not pay any cost by itself; it just enters selection mode and will invoke the
+        /// callback with the chosen target when the player clicks a valid unit.
+        ///
+        /// v1: we only support FieldTokenCostKind.SavageStacks and a single chosen unit.
+        /// </summary>
+        public void BeginTokenCostSelection(
+            CardInstance source,
+            FieldTokenCostKind costKind,
+            int requiredStacks,
+            Action<CardInstance, object> callback)
+        {
+            if (source == null || source.data == null)
+            {
+                Debug.LogWarning("[CardPhaseTargetSelection] BeginTokenCostSelection called with null source.");
+                return;
+            }
+
+            if (costKind == FieldTokenCostKind.None || requiredStacks <= 0)
+            {
+                Debug.LogWarning("[CardPhaseTargetSelection] BeginTokenCostSelection called with invalid costKind/requiredStacks.");
+                return;
+            }
+
+            if (isSelecting)
+            {
+                Debug.LogWarning("[CardPhaseTargetSelection] Already selecting; ignoring new token-cost request.");
+                return;
+            }
+
+            isSelecting = true;
+            selectionMode = SelectionMode.TokenCost;
+
+            currentKind = OnCallTargetingKind.None;
+            sourceCard = source;
+            sourceOwnerId = source.ownerId;
+            pendingSavageStacks = 0; // not used for token-cost selection
+
+            tokenCostKind = costKind;
+            tokenCostRequiredStacks = requiredStacks;
+            onTargetChosen = callback;
+
+            Debug.Log($"[CardPhaseTargetSelection] Enter token-cost selection mode: costKind={costKind}, requiredStacks={requiredStacks}, source={source.data.cardName}");
 
             HighlightValidTargetsForCurrentSelection();
         }
@@ -107,10 +170,16 @@ namespace Game.Match.CardPhase
             ClearAllHighlights();
 
             isSelecting = false;
+            selectionMode = SelectionMode.None;
+
             currentKind = OnCallTargetingKind.None;
             sourceCard = null;
             sourceOwnerId = -1;
             pendingSavageStacks = 0;
+
+            tokenCostKind = FieldTokenCostKind.None;
+            tokenCostRequiredStacks = 0;
+
             onTargetChosen = null;
         }
 
@@ -122,30 +191,32 @@ namespace Game.Match.CardPhase
             if (!isSelecting)
                 return;
 
-            Debug.Log("[CardPhaseTargetSelection] TrySelectTarget called.");
-
-            if (sourceCard == null || sourceCard.data == null)
-            {
-                Debug.LogWarning("[CardPhaseTargetSelection] No valid sourceCard while selecting; aborting.");
-                ClearState();
-                return;
-            }
-
             var selectable = target as CardPhaseSelectableUnit;
             if (selectable == null)
-            {
-                Debug.LogWarning("[CardPhaseTargetSelection] TrySelectTarget called with non-CardPhaseSelectableUnit target.");
                 return;
-            }
 
-            switch (currentKind)
+            switch (selectionMode)
             {
-                case OnCallTargetingKind.ChosenFriendlySavageVorgco:
-                    HandleChosenFriendlySavageVorgco(selectable);
+                case SelectionMode.OnCall:
+                    switch (currentKind)
+                    {
+                        case OnCallTargetingKind.ChosenFriendlySavageVorgco:
+                            HandleChosenFriendlySavageVorgco(selectable);
+                            break;
+
+                        default:
+                            Debug.LogWarning($"[CardPhaseTargetSelection] Unsupported OnCall targeting kind {currentKind}.");
+                            break;
+                    }
+                    break;
+
+                case SelectionMode.TokenCost:
+                    HandleTokenCostSelection(selectable);
                     break;
 
                 default:
-                    Debug.LogWarning($"[CardPhaseTargetSelection] Unsupported targeting kind {currentKind} in v1.");
+                    Debug.LogWarning("[CardPhaseTargetSelection] TrySelectTarget called while selectionMode=None; clearing state.");
+                    ClearState();
                     break;
             }
         }
@@ -199,48 +270,123 @@ namespace Game.Match.CardPhase
             ClearState();
         }
 
+        /// <summary>
+        /// v1 token-cost selection handler.
+        /// It only validates that the clicked unit is a valid token-cost candidate and then
+        /// notifies the caller via onTargetChosen. Actual token spending is handled by the effect code.
+        /// </summary>
+        private void HandleTokenCostSelection(CardPhaseSelectableUnit selectable)
+        {
+            if (!IsValidTokenCostCandidate(selectable))
+            {
+                // Invalid click; keep selection active and highlights as-is.
+                return;
+            }
+
+            Debug.Log(
+                $"[CardPhaseTargetSelection] Token-cost selection accepted: target={selectable.name}, costKind={tokenCostKind}, requiredStacks={tokenCostRequiredStacks}."
+            );
+
+            onTargetChosen?.Invoke(sourceCard, selectable);
+
+            ClearState();
+        }
+
+        /// <summary>
+        /// v1: treat ANY selectable unit as a valid target for the OnCall effect
+        /// "chosen friendly Savage Vorg'co".
+        ///
+        /// This restores the ability to target units that may have a weird OwnerId,
+        /// including ones summoned on previous turns. We can later tighten this again
+        /// (e.g. require same owner, isSavageArchetype, race=Vorgco) once owner
+        /// assignment is fully audited.
+        /// </summary>
+        /// <summary>
+        /// Valid target for "ChosenFriendlySavageVorgco":
+        /// - Same owner as the source card.
+        /// - CardSO is marked as Savage archetype.
+        /// - CardSO race is Vorgco.
+        /// </summary>
         private bool IsValidChosenFriendlySavageVorgco(CardPhaseSelectableUnit selectable)
         {
             if (selectable == null)
                 return false;
 
-            // Must be same owner.
+            // 1) Same owner
             if (selectable.OwnerId != sourceOwnerId)
             {
-                Debug.Log("[CardPhaseTargetSelection] Clicked unit is not friendly; ignoring.");
+                // Uncomment if you need to debug owner issues:
+                // Debug.Log($"[CardPhaseTargetSelection] Reject {selectable.name}: owner={selectable.OwnerId}, sourceOwner={sourceOwnerId}");
                 return false;
             }
 
-            var targetCard = selectable.Card;
-            if (targetCard == null)
+            // 2) Need access to the card data (CardSO) behind this unit.
+            var card = selectable.Card; // relies on CardPhaseSelectableUnit exposing CardSO
+            if (card == null)
             {
-                Debug.LogWarning("[CardPhaseTargetSelection] Target has no CardSO; ignoring.");
+                // Debug.Log($"[CardPhaseTargetSelection] Reject {selectable.name}: no CardSO assigned.");
                 return false;
             }
 
-            // Must be a Vorg'co.
-            if (targetCard.race != Race.Vorgco)
+            // 3) Must be Savage archetype
+            if (!card.isSavageArchetype)
             {
-                Debug.Log("[CardPhaseTargetSelection] Target is not a Vorg'co; ignoring.");
+                // Debug.Log($"[CardPhaseTargetSelection] Reject {selectable.name}: not Savage archetype.");
                 return false;
             }
 
-            // Must be marked as part of the Savage archetype.
-            if (!targetCard.isSavageArchetype)
+            // 4) Must be race Vorgco
+            if (card.race != Race.Vorgco)
             {
-                Debug.Log("[CardPhaseTargetSelection] Target is not marked as Savage archetype; ignoring.");
-                return false;
-            }
-
-            // Keep within same realm for containment / flavor.
-            Realm sourceRealm = sourceCard.data.realm;
-            if (targetCard.realm != sourceRealm)
-            {
-                Debug.Log("[CardPhaseTargetSelection] Target is not in the same realm as the source; ignoring.");
+                // Debug.Log($"[CardPhaseTargetSelection] Reject {selectable.name}: race={card.race}, expected=Vorgco.");
                 return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// v1 token-cost validator: for now we only support FieldTokenCostKind.SavageStacks
+        /// and require:
+        /// - same owner as the sourceCard,
+        /// - unit has UnitRuntime + StatusController,
+        /// - StatusController.HasAtLeastSavageStacks(tokenCostRequiredStacks).
+        /// </summary>
+        private bool IsValidTokenCostCandidate(CardPhaseSelectableUnit selectable)
+        {
+            if (selectable == null)
+                return false;
+
+            if (selectionMode != SelectionMode.TokenCost)
+                return false;
+
+            if (tokenCostKind == FieldTokenCostKind.None)
+                return false;
+
+            if (tokenCostRequiredStacks <= 0)
+                return false;
+
+            // For now, we only allow spending tokens from friendly units.
+            if (selectable.OwnerId != sourceOwnerId)
+            {
+                return false;
+            }
+
+            var runtime = selectable.Runtime;
+            if (runtime == null || runtime.StatusController == null)
+            {
+                return false;
+            }
+
+            switch (tokenCostKind)
+            {
+                case FieldTokenCostKind.SavageStacks:
+                    return runtime.StatusController.HasAtLeastSavageStacks(tokenCostRequiredStacks);
+
+                default:
+                    // Unknown token-cost kind; treat as invalid.
+                    return false;
+            }
         }
 
         // --- Highlight helpers ---
@@ -254,6 +400,10 @@ namespace Game.Match.CardPhase
 
             var all = FindObjectsOfType<CardPhaseSelectableUnit>();
 
+            Debug.Log(
+                $"[CardPhaseTargetSelection] HighlightValidTargets: mode={selectionMode}, totalSelectableUnits={all.Length}, sourceOwner={sourceOwnerId}"
+            );
+
             foreach (var selectable in all)
             {
                 if (selectable == null)
@@ -261,12 +411,25 @@ namespace Game.Match.CardPhase
 
                 bool valid = false;
 
-                switch (currentKind)
+                switch (selectionMode)
                 {
-                    case OnCallTargetingKind.ChosenFriendlySavageVorgco:
+                    case SelectionMode.OnCall:
+                        // For OnCall we currently use the generic "any unit" filter.
                         valid = IsValidChosenFriendlySavageVorgco(selectable);
                         break;
+
+                    case SelectionMode.TokenCost:
+                        valid = IsValidTokenCostCandidate(selectable);
+                        break;
+
+                    default:
+                        valid = false;
+                        break;
                 }
+
+                Debug.Log(
+                    $"[CardPhaseTargetSelection]   candidate={selectable.name}, ownerId={selectable.OwnerId}, valid={valid}, mode={selectionMode}"
+                );
 
                 selectable.SetHighlight(valid);
             }

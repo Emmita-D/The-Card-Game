@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
+  m_Name: SO_Ritual of Savage Thirst
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
+  cardName: Ritual of Savage Thirst
+  rulesText: 'Use 2 "Savage" tokens to search for a "Savage" unit in the deck. '
+  type: 1
+  realm: 1
+  race: 1
+  spellEffect: 0
+  spellSearchRealmFilter: 0
+  spellBuffAttackAmount: 2
+  spellBuffHealthAmount: 2
+  spellBuffLifetimeKind: 0
+  spellBuffDurationSeconds: 0
+  spellBuffAttackCount: 0
+  spellBuffTurnCount: 0
+  isSavageMagic: 1
+  onCallReturn3UnitsSearch2SavageMagic: 0
+  fieldTokenCostKind: 1
+  fieldTokenCostAmount: 2
+  fieldTokenCostSearchSavageUnit: 1
+  fieldTokenCostSearchSavageUnitMaxSelections: 1
+  trapEffect: 0
+  trapDamageAmount: 100
+  trapHpThresholdFraction: 0.5
+  trapGroundDurationSeconds: 10
+  trapSlowPercent: 0.4
+  trapSlowDurationSeconds: 6
+  trapVulnerabilityDamageTakenMultiplier: 1.25
+  trapVulnerabilityDurationSeconds: 6
+  sizeW: 1
+  sizeH: 1
+  manaStars: 0
+  attack: 0
+  health: 1
+  attackMode: 0
+  rangeMeters: 0
+  onCallTargeting: 0
+  onCallSavageStacksToChosenTarget: 0
+  onCallSearchVorgcoUnit: 0
+  onCallSearchVorgcoMagic: 0
+  isSavageArchetype: 1
+  costsZeroIfSavageUnitCalledThisTurn: 0
+  savageStacksOnKill: 0
+  savageStacksOnVorgcoDeath: 0
+  savageStacksOnLowHealth: 0
+  savageStacksOnDeathToSavage: 0
+  lowHpAllyHealAmount: 0
+  lowHpAllyHealCooldownSeconds: 0
+  movement: 0
+  chaseRangeMultiplier: 3
+  frontArcDotThreshold: 0.2
+  canAttackGroundUnits: 1
+  canAttackFlyingUnits: 1
+  canAttackTowers: 1
+  isDiveFlier: 0
+  artSprite: {fileID: 21300000, guid: 7ef15c09f7d6d1e499be01b7b636a78f, type: 3}
+  unitPrefab: {fileID: 0}
+  isLegend: 0
+  realmBonusVsOpposingMultiplier: 1

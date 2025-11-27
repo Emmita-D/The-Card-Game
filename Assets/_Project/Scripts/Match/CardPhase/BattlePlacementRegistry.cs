@@ -154,11 +154,41 @@ namespace Game.Match.CardPhase
         {
             var list = new List<BattleUnitSeed>(_entries.Count);
 
+            // Look up all CardPhaseSelectableUnit instances so we can read current Savage stacks.
+            var selectables = FindObjectsOfType<CardPhaseSelectableUnit>();
+
             for (int i = 0; i < _entries.Count; i++)
             {
                 var e = _entries[i];
                 if (e.card == null) continue;
                 if (e.ownerId != ownerId) continue;
+
+                int savageStacks = 0;
+
+                // Try to find the matching CardPhaseSelectableUnit for this entry
+                CardPhaseSelectableUnit best = null;
+                float bestDistSq = float.PositiveInfinity;
+
+                for (int j = 0; j < selectables.Length; j++)
+                {
+                    var sel = selectables[j];
+                    if (sel == null) continue;
+                    if (!ReferenceEquals(sel.Card, e.card)) continue;
+                    if (sel.OwnerId != e.ownerId) continue;
+
+                    float distSq = (sel.transform.position - e.worldPos).sqrMagnitude;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        best = sel;
+                    }
+                }
+
+                // If we found a close enough match, read its Savage stacks
+                if (best != null && best.Runtime != null && best.Runtime.StatusController != null)
+                {
+                    savageStacks = best.Runtime.StatusController.GetSavageStacks();
+                }
 
                 list.Add(new BattleUnitSeed
                 {
@@ -169,7 +199,8 @@ namespace Game.Match.CardPhase
                     useExactPosition = true,
                     exactPosition = e.worldPos,
                     bonusAttack = e.bonusAttack,
-                    bonusHealth = e.bonusHealth
+                    bonusHealth = e.bonusHealth,
+                    savageStacks = savageStacks
                 });
             }
 

@@ -70,6 +70,18 @@ namespace Game.Match.Status
         }
 
         /// <summary>
+        /// Returns true if this unit currently has at least the given number of Savage stacks.
+        /// Paying a cost of 0 is always considered affordable.
+        /// </summary>
+        public bool HasAtLeastSavageStacks(int amount)
+        {
+            if (amount <= 0)
+                return true;
+
+            return GetSavageStacks() >= amount;
+        }
+
+        /// <summary>
         /// Adds Savage stacks to this unit. If there is no SavageStatus yet,
         /// one will be created. Negative or zero amounts are ignored.
         /// </summary>
@@ -86,6 +98,44 @@ namespace Game.Match.Status
             }
 
             savage.AddStacks(amount);
+        }
+
+        /// <summary>
+        /// Attempts to spend the given number of Savage stacks from this unit.
+        /// Returns true if the cost was fully paid, false if there were not enough stacks.
+        /// If the resulting stack count reaches 0, the SavageStatus is removed.
+        ///
+        /// This does not handle any follow-up effect; it is purely a token-cost helper.
+        /// </summary>
+        public bool TrySpendSavageStacks(int amount, string debugContext = null)
+        {
+            if (amount <= 0)
+            {
+                UnityEngine.Debug.LogWarning($"[SavageTokenCost] TrySpendSavageStacks called with non-positive amount={amount}. Context={debugContext}");
+                return true; // Treat as trivially payable.
+            }
+
+            var savage = GetSavageStatusInternal();
+            var currentStacks = savage != null ? savage.Stacks : 0;
+
+            if (currentStacks < amount)
+            {
+                UnityEngine.Debug.Log($"[SavageTokenCost] Not enough Savage stacks to pay cost. Have={currentStacks}, need={amount}. Context={debugContext}");
+                return false;
+            }
+
+            // Pay the cost: subtract stacks via the SavageStatus API.
+            savage.AddStacks(-amount);
+            var afterStacks = savage.Stacks;
+
+            if (afterStacks <= 0)
+            {
+                // Remove the status entirely when no stacks remain.
+                activeStatuses.Remove(savage);
+            }
+
+            UnityEngine.Debug.Log($"[SavageTokenCost] Paid {amount} Savage stacks. Before={currentStacks}, After={afterStacks}. Context={debugContext}");
+            return true;
         }
 
         /// <summary>

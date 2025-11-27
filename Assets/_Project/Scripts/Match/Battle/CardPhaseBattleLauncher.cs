@@ -70,7 +70,10 @@ namespace Game.Match.Battle
                         laneIndex = 0,
                         spawnOffset = i * 1.0f,
                         useExactPosition = false,
-                        exactPosition = Vector3.zero
+                        exactPosition = Vector3.zero,
+                        bonusAttack = 0,
+                        bonusHealth = 0,
+                        savageStacks = 0
                     });
                 }
             }

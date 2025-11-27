@@ -22,7 +22,8 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
     {
         VorgcoUnit,
         VorgcoMagic,
-        SavageMagic
+        SavageMagic,
+        SavageUnit
     }
 
     [SerializeField]
@@ -80,6 +81,15 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
                 allowMultiSelect = true;
                 if (maxSelections <= 0)
                     maxSelections = 2; // sensible default
+
+                if (confirmButton != null)
+                    confirmButton.gameObject.SetActive(true);
+                break;
+
+            case DeckSearchMode.SavageUnit:
+                allowMultiSelect = true;
+                if (maxSelections <= 0)
+                    maxSelections = 1; // default to 1 if not specified
 
                 if (confirmButton != null)
                     confirmButton.gameObject.SetActive(true);
@@ -189,6 +199,48 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
     }
 
     /// <summary>
+    /// Opens the panel in SavageUnit mode to show a pre-filtered list of Savage unit cards
+    /// from the deck, allowing the player to pick up to maxPicks cards and then confirm.
+    /// </summary>
+    public void BeginSavageUnit(CardSO caller, int ownerId, TurnController turn, List<CardSO> candidates, int maxPicks)
+    {
+        if (caller == null || turn == null)
+        {
+            Debug.LogWarning("[DeckSearchVorgcoPanel] BeginSavageUnit called with null caller or turn.");
+            return;
+        }
+
+        currentCaller = caller;
+        currentOwnerId = ownerId;
+        currentTurn = turn;
+
+        ClearOptions();
+
+        currentMode = DeckSearchMode.SavageUnit;
+        maxSelections = maxPicks > 0 ? maxPicks : 1;
+        ConfigureForMode();
+
+        if (candidates == null || candidates.Count == 0)
+        {
+            Debug.Log("[DeckSearchVorgcoPanel] BeginSavageUnit: no Savage unit candidates to show.");
+            Close();
+            return;
+        }
+
+        if (rootPanel != null)
+            rootPanel.SetActive(true);
+
+        foreach (var so in candidates)
+        {
+            if (so == null) continue;
+
+            var opt = Instantiate(optionPrefab, optionsParent);
+            opt.Initialize(so, this);
+            activeOptions.Add(opt);
+        }
+    }
+
+    /// <summary>
     /// Called by DeckSearchVorgcoOption when the user clicks an option.
     /// Behaviour depends on allowMultiSelect:
     /// - Single-select (Vorg'co modes) — click = resolve immediately & close.
@@ -270,6 +322,10 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
             {
                 case DeckSearchMode.SavageMagic:
                     currentTurn.ResolveSavageMagicSearchPick(currentCaller, currentOwnerId, pickedList);
+                    break;
+
+                case DeckSearchMode.SavageUnit:
+                    currentTurn.ResolveSavageUnitSearchPick(currentCaller, currentOwnerId, pickedList);
                     break;
 
                     // Other multi-select modes can be added here in future.

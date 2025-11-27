@@ -355,15 +355,29 @@ namespace Game.Match.Battle
             agent.Initialize(seed.card, seed.ownerId, moveForward);
 
             combatResolver?.RegisterUnit(agent);
-            if (seed.bonusAttack != 0 || seed.bonusHealth != 0)
+
+            // Get runtime once so we can apply buffs + Savage stacks
+            var runtime = go.GetComponentInChildren<UnitRuntime>();
+
+            if (runtime != null && runtime.StatusController != null)
             {
-                var runtime = go.GetComponentInChildren<UnitRuntime>();
-                if (runtime != null && runtime.StatusController != null)
+                // Apply per-instance attack/health bonus if any
+                if (seed.bonusAttack != 0 || seed.bonusHealth != 0)
                 {
                     var buff = new StatBuffStatus(seed.bonusAttack, seed.bonusHealth);
                     runtime.StatusController.AddStatus(buff);
                 }
+
+                // NEW: apply Savage stacks carried by the seed
+                if (seed.savageStacks > 0)
+                {
+                    runtime.StatusController.AddSavageStacks(seed.savageStacks);
+                    Debug.Log(
+                        $"[BattleSceneController] Applied {seed.savageStacks} Savage stacks to {seed.card.cardName} (owner={seed.ownerId}) at spawn."
+                    );
+                }
             }
+
             var stamp = go.AddComponent<UnitOriginStamp>();
             stamp.ownerId = seed.ownerId;
             stamp.sourceCard = seed.card;
