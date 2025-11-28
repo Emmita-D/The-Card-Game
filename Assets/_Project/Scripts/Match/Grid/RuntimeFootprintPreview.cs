@@ -74,27 +74,46 @@ public class RuntimeFootprintPreview : MonoBehaviour
 
     void LateUpdate()
     {
-        // Only draw while a Unit card is actively being dragged
-        if (!DraggableCard.PreviewActive) return;
+        // Draw either while a drag preview is active OR when an external tile override is present.
+        if (!DraggableCard.PreviewActive && !DraggableCard.PreviewHasOverrideTile) return;
 
         var g = grid != null ? grid : DraggableCard.PreviewGrid;
         if (g == null) return;
 
-        var cam = Camera.main;
-        if (cam == null) return;
-
-        int mask = (gridMask.value == 0) ? ~0 : gridMask.value;
-        var ray = cam.ScreenPointToRay(lastMousePos);
-        if (!Physics.Raycast(ray, out var hit, 1000f, mask)) return;
-
         int w = Mathf.Clamp(DraggableCard.PreviewW, 1, 4);
         int h = Mathf.Clamp(DraggableCard.PreviewH, 1, 4);
 
-        // Same centering rule as your gizmo script and placement
-        var origin = CenteredOrigin(g, hit.point, w, h);
+        Vector2Int origin;
+        bool ok;
 
-        bool can = g.CanPlaceRect(origin, w, h);
-        bool ok = can && (!DraggableCard.PreviewIsUnit || DraggableCard.PreviewAffordable);
+        if (DraggableCard.PreviewHasOverrideTile)
+        {
+            // External tile-driven mode (e.g., CardPhase tile selection).
+            origin = DraggableCard.PreviewOverrideTile;
+
+            bool can = g.CanPlaceRect(origin, w, h);
+            bool validOverride = DraggableCard.PreviewOverrideValid;
+
+            ok = can
+                 && validOverride
+                 && (!DraggableCard.PreviewIsUnit || DraggableCard.PreviewAffordable);
+        }
+        else
+        {
+            // Original drag-based mode: use mouse raycast to find origin.
+            var cam = Camera.main;
+            if (cam == null) return;
+
+            int mask = (gridMask.value == 0) ? ~0 : gridMask.value;
+            var ray = cam.ScreenPointToRay(lastMousePos);
+            if (!Physics.Raycast(ray, out var hit, 1000f, mask)) return;
+
+            // Same centering rule as your gizmo script and placement
+            origin = CenteredOrigin(g, hit.point, w, h);
+
+            bool can = g.CanPlaceRect(origin, w, h);
+            ok = can && (!DraggableCard.PreviewIsUnit || DraggableCard.PreviewAffordable);
+        }
 
         // Pick color for this frame
         SetMatColor(ok ? validColor : invalidColor);

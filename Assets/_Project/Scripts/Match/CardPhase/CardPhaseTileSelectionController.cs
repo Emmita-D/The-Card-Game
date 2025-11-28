@@ -1,8 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;    // <-- add this
 using Game.Match.Grid;   // to use GridService
+using Game.Match.Cards;  // 👈 for DraggableCard (static preview helpers)
 
 namespace Game.Match.CardPhase
 {
@@ -26,6 +27,9 @@ namespace Game.Match.CardPhase
         [Header("Debug")]
         public bool logSelection = true;
         public bool drawDebugGizmos = true;
+
+        [Header("On-Call ghost preview")]
+        [SerializeField] private OnCallGhostSummonOverlay ghostOverlay;
 
         // Footprint (width/height in tiles) used when validating a candidate tile.
         // The clicked tile is treated as the bottom-left of this rectangle.
@@ -69,44 +73,30 @@ namespace Game.Match.CardPhase
         /// </summary>
         public void Begin(int ownerId, int count, Action<List<Vector2Int>> callback, int footprintWidth, int footprintHeight)
         {
-            if (isSelecting)
-            {
-                Debug.LogWarning("[TileSelection] Begin called while already selecting; ignoring.");
-                return;
-            }
-
-            if (count <= 0)
-            {
-                Debug.LogWarning("[TileSelection] Begin called with non-positive count; ignoring.");
-                return;
-            }
-
-            if (grid == null)
-            {
-                Debug.LogError("[TileSelection] Cannot begin, GridService is null.");
-                return;
-            }
-
             selectingOwner = ownerId;
             requiredCount = count;
-            onComplete = callback;
+            footprintW = footprintWidth;
+            footprintH = footprintHeight;
+
             selected.Clear();
+            onComplete = callback;
+
+            // Clear any leftover ghosts from a previous selection.
+            if (ghostOverlay != null)
+            {
+                ghostOverlay.ClearAllGhosts();
+            }
+
             isSelecting = true;
 
-            footprintW = Mathf.Max(1, footprintWidth);
-            footprintH = Mathf.Max(1, footprintHeight);
+            if (logSelection)
+                Debug.Log($"[TileSelection] BEGIN (owner={ownerId}, need={count}, footprint={footprintWidth}x{footprintHeight}). Left-click valid tiles to select.");
 
-            // Reuse DraggableCard's footprint preview (FootprintPreviewRect / FootprintPreview).
+            // Turn on footprint preview for this selection.
             if (grid != null)
             {
                 DraggableCard.SetExternalFootprintPreview(grid, footprintW, footprintH, true, true);
             }
-
-            if (logSelection)
-                Debug.Log(
-                    $"[TileSelection] BEGIN (owner={ownerId}, need={count}, footprint={footprintW}x{footprintH}). " +
-                    "Left-click valid tiles to select."
-                );
         }
 
         /// <summary>
@@ -115,6 +105,7 @@ namespace Game.Match.CardPhase
         public void Cancel()
         {
             if (!isSelecting) return;
+
             isSelecting = false;
             selected.Clear();
             onComplete = null;
@@ -123,13 +114,20 @@ namespace Game.Match.CardPhase
             {
                 DraggableCard.SetExternalFootprintPreview(grid, footprintW, footprintH, false, true);
             }
+            DraggableCard.ClearExternalFootprintTileOverride();
+
+            if (ghostOverlay != null)
+            {
+                ghostOverlay.ClearAllGhosts();
+            }
 
             if (logSelection) Debug.Log("[TileSelection] CANCELLED.");
         }
 
         private void Update()
         {
-            if (!isSelecting) return;
+            if (!isSelecting)
+                return;
 
             if (cam == null)
                 cam = Camera.main;
@@ -140,60 +138,95 @@ namespace Game.Match.CardPhase
                 return;
             }
 
-            // New Input System: use Mouse.current instead of UnityEngine.Input
             if (Mouse.current == null)
-                return; // no mouse device available
+                return;
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            // ------------------------------------------------------------
+            // HOVER: drive the footprint preview from the tile under mouse
+            // ------------------------------------------------------------
+            bool hasTile = TryGetMouseTile(out var tile);
+
+            if (hasTile)
             {
-                if (TryGetMouseTile(out var tile))
+                bool isValidForPreview =
+                    IsTileOnOwnerSide(tile, selectingOwner) &&
+                    IsTileEmpty(tile);
+
+                DraggableCard.UpdateExternalFootprintTile(tile, isValidForPreview);
+            }
+            else
+            {
+                DraggableCard.ClearExternalFootprintTileOverride();
+            }
+
+            // ------------------------------------------------------------
+            // LEFT CLICK: confirm selection
+            // ------------------------------------------------------------
+            if (!Mouse.current.leftButton.wasPressedThisFrame)
+                return;
+
+            if (!hasTile)
+                return;
+
+            // Re-validate for actual selection.
+            if (!IsTileOnOwnerSide(tile, selectingOwner))
+            {
+                if (logSelection)
+                    Debug.Log($"[TileSelection] Tile {tile} rejected: not on owner {selectingOwner}'s side.");
+                return;
+            }
+
+            if (!IsTileEmpty(tile))
+            {
+                if (logSelection)
+                    Debug.Log($"[TileSelection] Tile {tile} rejected: not empty.");
+                return;
+            }
+
+            if (selected.Contains(tile))
+            {
+                if (logSelection)
+                    Debug.Log($"[TileSelection] Tile {tile} already selected.");
+                return;
+            }
+
+            selected.Add(tile);
+
+            // Spawn a ghost for this footprint (visual-only preview).
+            if (ghostOverlay != null)
+            {
+                ghostOverlay.ShowGhostAt(tile, footprintW, footprintH);
+            }
+
+            if (logSelection)
+                Debug.Log($"[TileSelection] SELECT {tile} ({selected.Count}/{requiredCount}).");
+
+            if (selected.Count >= requiredCount)
+            {
+                var result = new List<Vector2Int>(selected);
+
+                isSelecting = false;
+                selected.Clear();
+
+                // Turn off footprint preview and clear override.
+                if (grid != null)
                 {
-                    if (!IsTileOnOwnerSide(tile, selectingOwner))
-                    {
-                        if (logSelection)
-                            Debug.Log($"[TileSelection] Tile {tile} rejected: not on owner {selectingOwner}'s side.");
-                        return;
-                    }
-
-                    if (!IsTileEmpty(tile))
-                    {
-                        if (logSelection)
-                            Debug.Log($"[TileSelection] Tile {tile} rejected: not empty.");
-                        return;
-                    }
-
-                    if (selected.Contains(tile))
-                    {
-                        if (logSelection)
-                            Debug.Log($"[TileSelection] Tile {tile} already selected.");
-                        return;
-                    }
-
-                    selected.Add(tile);
-
-                    if (logSelection)
-                        Debug.Log($"[TileSelection] SELECT {tile} ({selected.Count}/{requiredCount}).");
-
-                    if (selected.Count >= requiredCount)
-                    {
-                        var result = new List<Vector2Int>(selected);
-
-                        isSelecting = false;
-                        selected.Clear();
-
-                        if (grid != null)
-                        {
-                            DraggableCard.SetExternalFootprintPreview(grid, footprintW, footprintH, false, true);
-                        }
-
-                        if (logSelection)
-                            Debug.Log("[TileSelection] COMPLETE.");
-
-                        var cb = onComplete;
-                        onComplete = null;
-                        cb?.Invoke(result);
-                    }
+                    DraggableCard.SetExternalFootprintPreview(grid, footprintW, footprintH, false, true);
                 }
+                DraggableCard.ClearExternalFootprintTileOverride();
+
+                // Clear all ghosts now that we’re going to spawn real units.
+                if (ghostOverlay != null)
+                {
+                    ghostOverlay.ClearAllGhosts();
+                }
+
+                if (logSelection)
+                    Debug.Log("[TileSelection] COMPLETE.");
+
+                var cb = onComplete;
+                onComplete = null;
+                cb?.Invoke(result);
             }
         }
 
@@ -213,10 +246,10 @@ namespace Game.Match.CardPhase
             if (!Physics.Raycast(ray, out var hit, maxRayDistance, gridMask))
                 return false;
 
-            if (!grid.WorldToTile(hit.point, out var t))
-                return false;
+            // Use same centering rule as the drag footprint preview.
+            var origin = CenteredOriginForFootprint(hit.point);
 
-            tile = t;
+            tile = origin;
             return true;
         }
 
@@ -234,8 +267,69 @@ namespace Game.Match.CardPhase
         {
             if (grid == null) return true;
 
-            // Use full footprint instead of just the single tile.
-            return grid.CanPlaceRect(t, footprintW, footprintH);
+            // First ask the grid if the rectangle is free (no real units, in bounds, etc.)
+            if (!grid.CanPlaceRect(t, footprintW, footprintH))
+                return false;
+
+            // Then make sure it doesn't overlap any already-selected footprints
+            foreach (var taken in selected)
+            {
+                if (FootprintsOverlap(t, taken))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Computes a bottom-left origin tile so that a footprintW x footprintH
+        /// rectangle is visually centered around the given world point.
+        /// Mirrors the centering used by RuntimeFootprintPreview.
+        /// </summary>
+        private Vector2Int CenteredOriginForFootprint(Vector3 world)
+        {
+            if (grid == null)
+                return default;
+
+            float ts = grid.TileSize;
+
+            int w = Mathf.Max(1, footprintW);
+            int h = Mathf.Max(1, footprintH);
+
+            int ox = ((w & 1) == 1)
+                ? Mathf.FloorToInt(world.x / ts) - (w - 1) / 2
+                : Mathf.RoundToInt(world.x / ts) - (w / 2);
+
+            int oy = ((h & 1) == 1)
+                ? Mathf.FloorToInt(world.z / ts) - (h - 1) / 2
+                : Mathf.RoundToInt(world.z / ts) - (h / 2);
+
+            return new Vector2Int(ox, oy);
+        }
+
+        /// <summary>
+        /// Checks whether a candidate placement at 'candidateOrigin' would overlap
+        /// with an already-selected placement at 'existingOrigin', assuming both
+        /// use the same footprintW/footprintH.
+        /// </summary>
+        private bool FootprintsOverlap(Vector2Int candidateOrigin, Vector2Int existingOrigin)
+        {
+            int axMin = candidateOrigin.x;
+            int axMax = candidateOrigin.x + footprintW - 1;
+            int azMin = candidateOrigin.y;
+            int azMax = candidateOrigin.y + footprintH - 1;
+
+            int bxMin = existingOrigin.x;
+            int bxMax = existingOrigin.x + footprintW - 1;
+            int bzMin = existingOrigin.y;
+            int bzMax = existingOrigin.y + footprintH - 1;
+
+            // Separating axis test in grid space
+            bool separated =
+                axMax < bxMin || bxMax < axMin ||
+                azMax < bzMin || bzMax < azMin;
+
+            return !separated;
         }
 
         private void OnDrawGizmos()

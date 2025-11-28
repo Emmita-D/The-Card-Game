@@ -39,9 +39,15 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     public static bool PreviewIsUnit = false;
     public static bool PreviewAffordable = true;
 
+    // External (tile-driven) preview override for CardPhase tile selection.
+    // When active, RuntimeFootprintPreview will use this tile as the origin
+    // instead of computing one from a drag raycast.
+    public static bool PreviewHasOverrideTile = false;
+    public static Vector2Int PreviewOverrideTile;
+    public static bool PreviewOverrideValid = true;
+
     // Driver instance so external systems can toggle the footprint preview safely.
     private static DraggableCard s_previewDriver;
-
     public bool IsDragging { get; private set; }
 
     RectTransform rt;
@@ -578,7 +584,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     }
 
     /// <summary>
-    /// Allows external systems (e.g. CardPhase tile selection) to reuse the
+    /// Called from external systems (e.g., CardPhase tile selection) to reuse the
     /// existing footprint preview (FootprintPreview / RuntimeFootprintPreview)
     /// without starting an actual card drag.
     /// </summary>
@@ -597,6 +603,12 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         PreviewIsUnit = active;     // treat as a unit preview
         PreviewAffordable = affordable;
 
+        // If we are turning the external preview off, also clear any override tile.
+        if (!active)
+        {
+            PreviewHasOverrideTile = false;
+        }
+
         // Make sure we have a driver instance that can toggle the preview behaviours
         if (s_previewDriver == null)
             s_previewDriver = GameObject.FindObjectOfType<DraggableCard>();
@@ -606,7 +618,25 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             s_previewDriver.ToggleDebugPreviews(active);
         }
 
-        Debug.Log($"[DraggableCard] SetExternalFootprintPreview active={active}, size={PreviewW}x{PreviewH}, affordable={PreviewAffordable}");
+        Debug.Log($"[DraggableCard] SetExternalFootprintPreview ...), size={PreviewW}x{PreviewH}, affordable={PreviewAffordable}");
+    }
+    /// <summary>
+    /// Used by CardPhase tile-selection flows to drive the footprint preview
+    /// from an explicit grid tile instead of the drag raycast.
+    /// </summary>
+    public static void UpdateExternalFootprintTile(Vector2Int tile, bool isValid)
+    {
+        PreviewOverrideTile = tile;
+        PreviewOverrideValid = isValid;
+        PreviewHasOverrideTile = true;
+    }
+
+    /// <summary>
+    /// Clears the external tile override without disabling the preview system.
+    /// </summary>
+    public static void ClearExternalFootprintTileOverride()
+    {
+        PreviewHasOverrideTile = false;
     }
 
     void ToggleDebugPreviews(bool enable)

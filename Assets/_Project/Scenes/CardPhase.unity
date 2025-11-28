@@ -1434,6 +1434,7 @@ MonoBehaviour:
   maxRayDistance: 100
   logSelection: 1
   drawDebugGizmos: 1
+  ghostOverlay: {fileID: 701811360}
 --- !u!4 &301060651
 Transform:
   m_ObjectHideFlags: 0
@@ -2451,6 +2452,55 @@ MonoBehaviour:
   cfg: {fileID: 0}
   startSlots: 0
   startCurrent: 0
+--- !u!1 &701811358
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 701811359}
+  - component: {fileID: 701811360}
+  m_Layer: 0
+  m_Name: OnCallGhostSummonOverlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &701811359
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 701811358}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: -385.88367, y: 346.01187, z: -262.6445}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1388859435}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &701811360
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 701811358}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 50f26984ebd16d946aae5e81512c2924, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.CardPhase.OnCallGhostSummonOverlay
+  grid: {fileID: 1388859434}
+  ghostRoot: {fileID: 0}
+  defaultGhostPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
+  yOffset: 1
+  ghostLayer: 0
 --- !u!1 &874025080
 GameObject:
   m_ObjectHideFlags: 0
@@ -4222,6 +4272,7 @@ Transform:
   m_Children:
   - {fileID: 1962285357}
   - {fileID: 969990708}
+  - {fileID: 701811359}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1388859436
