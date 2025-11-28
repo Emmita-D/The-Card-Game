@@ -90,7 +90,7 @@ public class RuntimeFootprintPreview : MonoBehaviour
         int w = Mathf.Clamp(DraggableCard.PreviewW, 1, 4);
         int h = Mathf.Clamp(DraggableCard.PreviewH, 1, 4);
 
-        // Same centering rule as your gizmo script (and placement) :contentReference[oaicite:1]{index=1}
+        // Same centering rule as your gizmo script and placement
         var origin = CenteredOrigin(g, hit.point, w, h);
 
         bool can = g.CanPlaceRect(origin, w, h);
@@ -104,22 +104,20 @@ public class RuntimeFootprintPreview : MonoBehaviour
         float s = g.TileSize;
 
         for (int dy = 0; dy < h; dy++)
+        {
             for (int dx = 0; dx < w; dx++)
             {
                 var t = new Vector2Int(origin.x + dx, origin.y + dy);
                 Vector3 c2w = g.TileCenterToWorld(t, 0f) + new Vector3(0f, yOffset, 0f);
                 var M = Matrix4x4.TRS(c2w, Quaternion.identity, new Vector3(s, 1f, s));
                 batch.Add(M);
-
-                if (batch.Count == 1023)
-                {
-                    Graphics.DrawMeshInstanced(quad, 0, mat, batch);
-                    batch.Clear();
-                }
             }
+        }
 
-        if (batch.Count > 0)
+        if (batch.Count > 0 && quad && mat)
+        {
             Graphics.DrawMeshInstanced(quad, 0, mat, batch);
+        }
     }
 
     static Vector2Int CenteredOrigin(GridService g, Vector3 world, int w, int h)

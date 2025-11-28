@@ -71,6 +71,13 @@ namespace Game.Match.Cards
         public Realm realm = Realm.Empyrean;
         public Race race = Race.Human;
 
+        [Header("Token / Deck / Graveyard Flags")]
+        [Tooltip("If true, this CardSO is intended to be used only for generated tokens / summons, not as a normal deck/hand card.")]
+        public bool isTokenOnly = false;
+
+        [Tooltip("If true, instances of this card should skip going to any graveyard when they die (they are simply removed from the game).")]
+        public bool skipGraveyardOnDeath = false;
+
         [Header("Spell (if Spell)")]
         [Tooltip("Simple v1 effect used by the CardEffectRunner for spells.")]
         public SpellEffectKind spellEffect = SpellEffectKind.None;
@@ -162,6 +169,20 @@ namespace Game.Match.Cards
 
         [Tooltip("If true, when this card is Called it opens the choose-one panel to search for a Vorg'co magic (spell) card in your deck.")]
         public bool onCallSearchVorgcoMagic;
+
+        [Header("On-call: Extra Summons (unit-only)")]
+        [Tooltip("If true, when this unit is Called on the CardPhase board it will also summon extra units onto chosen tiles.")]
+        public bool onCallSummonExtraUnits = false;
+
+        [Tooltip("How many extra units to summon when this unit is Called. For now this is a simple count of identical units.")]
+        [Min(0)]
+        public int onCallExtraSummonCount = 0;
+
+        [Tooltip("The CardSO that defines the extra units to summon when this unit is Called. That CardSO can be marked as token-only if needed.")]
+        public CardSO onCallExtraSummonUnit;
+
+        [Tooltip("If true, extra summoned units should be treated as generated tokens (never in deck/hand, can skip graveyard, etc.).")]
+        public bool onCallExtraSummonsAreTokens = true;
 
         [Header("Savage (unit-only, v1)")]
         [Tooltip("Marks this unit as part of the 'Savage' archetype for the purposes of Savage-only cards and effects (e.g., deathrattles that target Savage units only).")]

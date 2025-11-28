@@ -107,21 +107,46 @@ namespace Game.Match.Graveyard
 
         public void Add(int ownerId, CardSO card)
         {
-            if (card == null) return;
+            if (card == null)
+                return;
+
+            // Tokens / special cards that should not go to graveyard at all.
+            if (card.isTokenOnly || card.skipGraveyardOnDeath)
+            {
+                Debug.Log(
+                    $"[Graveyard] Skipping Add for token / skip-graveyard card {card.cardName} (owner={ownerId})."
+                );
+                return;
+            }
+
             var realm = RealmOf(card);
             Add(ownerId, card, realm);
         }
 
         public void Add(int ownerId, CardSO card, GraveyardRealm realm)
         {
-            if (card == null) return;
+            if (card == null)
+                return;
+
+            // Tokens / special cards that should not go to graveyard at all.
+            if (card.isTokenOnly || card.skipGraveyardOnDeath)
+            {
+                Debug.Log(
+                    $"[Graveyard] Skipping Add for token / skip-graveyard card {card.cardName} " +
+                    $"(owner={ownerId}, realm={realm})."
+                );
+                return;
+            }
+
             var key = (ownerId, realm);
             if (!_store.TryGetValue(key, out var list))
             {
                 list = new List<CardSO>(8);
                 _store[key] = list;
             }
-            list.Add(card); // newest at end
+
+            // newest at end
+            list.Add(card);
             OnChanged?.Invoke(ownerId);
         }
 

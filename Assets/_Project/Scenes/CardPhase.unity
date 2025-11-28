@@ -1398,6 +1398,57 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 262709217}
   m_CullTransparentMesh: 1
+--- !u!1 &301060649
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 301060651}
+  - component: {fileID: 301060650}
+  m_Layer: 0
+  m_Name: CardPhaseTileSelectionController
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &301060650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 301060649}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ca502b41f29e0f745964f68883a4a2fc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.CardPhase.CardPhaseTileSelectionController
+  grid: {fileID: 1388859434}
+  gridMask:
+    serializedVersion: 2
+    m_Bits: 64
+  maxRayDistance: 100
+  logSelection: 1
+  drawDebugGizmos: 1
+--- !u!4 &301060651
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 301060649}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -385.88367, y: 346.01187, z: -262.6445}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &309679320
 GameObject:
   m_ObjectHideFlags: 0
@@ -4920,6 +4971,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
   - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
   - {fileID: 11400000, guid: 80f24691aaf3fc94fb42de5189c6aad1, type: 2}
+  - {fileID: 11400000, guid: ea29bc7025e2eff49a60438db91bc577, type: 2}
+  - {fileID: 11400000, guid: ea29bc7025e2eff49a60438db91bc577, type: 2}
+  - {fileID: 11400000, guid: ea29bc7025e2eff49a60438db91bc577, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0
@@ -7231,6 +7285,7 @@ SceneRoots:
   - {fileID: 670206534}
   - {fileID: 1388859435}
   - {fileID: 1664319205}
+  - {fileID: 301060651}
   - {fileID: 1824448879}
   - {fileID: 1481162510}
   - {fileID: 548908914}

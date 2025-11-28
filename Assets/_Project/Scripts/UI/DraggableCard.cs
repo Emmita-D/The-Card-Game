@@ -10,6 +10,7 @@ using Game.Match.Graveyard;
 using Game.Match.CardPhase;   // 👈 needed for BattlePlacementRegistry
 using Game.Match.Log;
 using Game.Match.Traps;
+using Game.Match.CardPhase;
 
 
 public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IPointerClickHandler
@@ -29,14 +30,17 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     [SerializeField] public RectTransform handContainer;
     [SerializeField] private TurnController turn;
 
-    // Footprint preview
+    // Footprint preview (used by FootprintPreview / RuntimeFootprintPreview)
     public static bool PreviewActive;
     public static int PreviewW = 1, PreviewH = 1;
     public static GridService PreviewGrid;
 
-    // NEW: preview metadata for affordability coloring
+    // Preview metadata for affordability coloring
     public static bool PreviewIsUnit = false;
     public static bool PreviewAffordable = true;
+
+    // Driver instance so external systems can toggle the footprint preview safely.
+    private static DraggableCard s_previewDriver;
 
     public bool IsDragging { get; private set; }
 
@@ -68,6 +72,11 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         if (aff == null) aff = gameObject.AddComponent<CardAffordability>();
 
         if (turn == null) turn = FindObjectOfType<TurnController>();
+
+        // Remember one DraggableCard as the preview driver so external systems
+        // can toggle the footprint preview via the static helper.
+        if (s_previewDriver == null)
+            s_previewDriver = this;
     }
 
     public void OnBeginDrag(PointerEventData e)
@@ -115,7 +124,8 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         if (isUnit)
         {
             GetFootprintInts(so, out int w, out int h);
-            PreviewW = w; PreviewH = h;
+            PreviewW = w;
+            PreviewH = h;
             PreviewGrid = grid != null ? grid : FindObjectOfType<GridService>();
             PreviewActive = true;
 
@@ -128,6 +138,7 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
             PreviewAffordable = true; // spells unaffected
         }
 
+        // Enable footprint previews only for units
         ToggleDebugPreviews(isUnit);
     }
 
@@ -427,6 +438,33 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
                 }
             }
         }
+        // On-call: extra summons (unit-only, generic v1).
+        // If this unit's CardSO is configured to summon extra units when Called,
+        // forward the request to the TurnController.
+        if (so != null
+            && so.type == CardType.Unit
+            && so.onCallSummonExtraUnits
+            && so.onCallExtraSummonCount > 0
+            && so.onCallExtraSummonUnit != null)
+        {
+            if (turn == null)
+                turn = FindObjectOfType<TurnController>();
+
+            if (turn != null && instance != null)
+            {
+                Debug.Log(
+                    $"[DraggableCard] Requesting On-call extra summons for {so.cardName} " +
+                    $"(owner={instance.ownerId}, count={so.onCallExtraSummonCount})."
+                );
+                turn.RequestOnCallExtraSummons(instance);
+            }
+            else
+            {
+                Debug.LogWarning(
+                    "[DraggableCard] On-call extra summons requested, but TurnController or CardInstance is null."
+                );
+            }
+        }
         // On-call: search this player's deck for a Vorg'co unit and let the player choose one.
         if (so != null && (so.onCallSearchVorgcoUnit || so.onCallSearchVorgcoMagic))
         {
@@ -539,16 +577,60 @@ public class DraggableCard : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         h = Mathf.Clamp(so.sizeH, 1, 4);
     }
 
+    /// <summary>
+    /// Allows external systems (e.g. CardPhase tile selection) to reuse the
+    /// existing footprint preview (FootprintPreview / RuntimeFootprintPreview)
+    /// without starting an actual card drag.
+    /// </summary>
+    public static void SetExternalFootprintPreview(
+        GridService grid,
+        int w,
+        int h,
+        bool active,
+        bool affordable = true
+    )
+    {
+        PreviewGrid = grid;
+        PreviewW = Mathf.Max(1, w);
+        PreviewH = Mathf.Max(1, h);
+        PreviewActive = active;
+        PreviewIsUnit = active;     // treat as a unit preview
+        PreviewAffordable = affordable;
+
+        // Make sure we have a driver instance that can toggle the preview behaviours
+        if (s_previewDriver == null)
+            s_previewDriver = GameObject.FindObjectOfType<DraggableCard>();
+
+        if (s_previewDriver != null)
+        {
+            s_previewDriver.ToggleDebugPreviews(active);
+        }
+
+        Debug.Log($"[DraggableCard] SetExternalFootprintPreview active={active}, size={PreviewW}x{PreviewH}, affordable={PreviewAffordable}");
+    }
+
     void ToggleDebugPreviews(bool enable)
     {
         var behaviours = GameObject.FindObjectsOfType<MonoBehaviour>(true);
+        int toggled = 0;
+
         foreach (var b in behaviours)
         {
             if (b == null) continue;
             var tn = b.GetType().Name;
-            if (tn == "FootprintPreviewRect" || tn == "FootprintPreview" || tn == "PlaceCubeTest")
+
+            // Include all known footprint preview behaviours
+            if (tn == "FootprintPreviewRect"
+                || tn == "FootprintPreview"
+                || tn == "RuntimeFootprintPreview"
+                || tn == "PlaceCubeTest")
+            {
                 b.enabled = enable;
+                toggled++;
+            }
         }
+
+        Debug.Log($"[DraggableCard] ToggleDebugPreviews({enable}) → toggled {toggled} preview behaviours.");
     }
     void ConsumeAndDestroy()
     {

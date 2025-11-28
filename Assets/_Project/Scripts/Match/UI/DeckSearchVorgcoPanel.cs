@@ -149,6 +149,7 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
         foreach (var so in candidates)
         {
             if (so == null) continue;
+            if (so.isTokenOnly) continue; // Never show token-only cards in deck search.
 
             var opt = Instantiate(optionPrefab, optionsParent);
             opt.Initialize(so, this);
@@ -233,6 +234,7 @@ public class DeckSearchVorgcoPanel : MonoBehaviour
         foreach (var so in candidates)
         {
             if (so == null) continue;
+            if (so.isTokenOnly) continue; // Ensure Savage token-only cards are never listed.
 
             var opt = Instantiate(optionPrefab, optionsParent);
             opt.Initialize(so, this);

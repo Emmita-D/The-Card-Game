@@ -10,16 +10,15 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
-  m_Name: SO_SavageWarrior
+  m_Name: SO_Token Summon
   m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
-  cardName: Savage Warrior
-  rulesText: Gains 2 "Savage" tokens after killing a unit. If this unit has 5+ "Savage"
-    tokens, stun the enemy once every fifteenth hit for 2 seconds.
+  cardName: Token summon
+  rulesText: It's a token
   type: 0
   realm: 1
   race: 1
-  isTokenOnly: 0
-  skipGraveyardOnDeath: 0
+  isTokenOnly: 1
+  skipGraveyardOnDeath: 1
   spellEffect: 0
   spellSearchRealmFilter: 0
   spellBuffAttackAmount: 0
@@ -44,9 +43,9 @@ MonoBehaviour:
   trapVulnerabilityDurationSeconds: 6
   sizeW: 2
   sizeH: 2
-  manaStars: 1
+  manaStars: 0
   attack: 10
-  health: 150
+  health: 20
   attackMode: 0
   rangeMeters: 1
   onCallTargeting: 0
@@ -59,7 +58,7 @@ MonoBehaviour:
   onCallExtraSummonsAreTokens: 1
   isSavageArchetype: 1
   costsZeroIfSavageUnitCalledThisTurn: 0
-  savageStacksOnKill: 4
+  savageStacksOnKill: 0
   savageStacksOnVorgcoDeath: 0
   savageStacksOnLowHealth: 0
   savageStacksOnDeathToSavage: 0

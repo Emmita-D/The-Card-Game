@@ -3,6 +3,7 @@ using Game.Match.Battle;     // CardPhaseBattleLauncher
 using Game.Match.CardPhase;
 using Game.Match.Cards;
 using Game.Match.Graveyard;
+using Game.Match.Grid;
 using Game.Match.Log;
 using Game.Match.Mana;        // ManaPool (Slots/Current/SetSlots/SetCurrent)
 using Game.Match.Status;
@@ -131,6 +132,29 @@ namespace Game.Match.State
         private int pendingTokenCostStacks;
         private FieldTokenCostKind pendingTokenCostKind = FieldTokenCostKind.None;
 
+        // --- On-call: Extra Summons (unit-only, v1) ---
+
+        /// <summary>
+        /// True while we are processing an extra-summon request triggered by an On-call effect.
+        /// Prevents overlapping requests while we later plug in tile selection callbacks.
+        /// </summary>
+        private bool isResolvingOnCallExtraSummons;
+
+        /// <summary>
+        /// The unit card instance whose On-call effect requested extra summons.
+        /// </summary>
+        private CardInstance pendingOnCallSummonSource;
+
+        /// <summary>
+        /// How many extra units we intend to summon for the current pending request.
+        /// </summary>
+        private int pendingOnCallExtraSummonCount;
+
+        /// <summary>
+        /// The CardSO used for the extra units to summon (typically a token-like unit).
+        /// </summary>
+        private CardSO pendingOnCallExtraSummonUnit;
+
         /// <summary>
         /// Notifies this TurnController that a unit has been Called on the
         /// CardPhase grid. Used to track once-per-turn Savage-unit conditions.
@@ -167,6 +191,279 @@ namespace Game.Match.State
         }
 
         /// <summary>
+        /// Entry point for On-call extra summons.
+        /// Called by the UI (DraggableCard) after a unit has been successfully placed
+        /// on the CardPhase board, when its CardSO has onCallSummonExtraUnits enabled.
+        ///
+        /// Step 2: this only validates config and logs. Step 3 will plug in tile selection
+        /// and actual extra unit spawning.
+        /// </summary>
+        public void RequestOnCallExtraSummons(CardInstance caller)
+        {
+            if (caller == null || caller.data == null)
+            {
+                Debug.LogWarning("[OnCallSummon] RequestOnCallExtraSummons called with null caller or data.");
+                return;
+            }
+
+            var so = caller.data;
+
+            // Quick config validation: feature disabled or incomplete?
+            if (!so.onCallSummonExtraUnits
+                || so.onCallExtraSummonCount <= 0
+                || so.onCallExtraSummonUnit == null)
+            {
+                Debug.Log(
+                    $"[OnCallSummon] RequestOnCallExtraSummons for {so.cardName} ignored – config disabled or incomplete."
+                );
+                return;
+            }
+
+            if (isResolvingOnCallExtraSummons)
+            {
+                Debug.LogWarning(
+                    $"[OnCallSummon] Already resolving an extra-summon request; " +
+                    $"ignoring new one for {so.cardName}."
+                );
+                return;
+            }
+
+            isResolvingOnCallExtraSummons = true;
+
+            pendingOnCallSummonSource = caller;
+            pendingOnCallExtraSummonCount = so.onCallExtraSummonCount;
+            pendingOnCallExtraSummonUnit = so.onCallExtraSummonUnit;
+
+            string callerName = string.IsNullOrEmpty(so.cardName) ? so.name : so.cardName;
+            string extraName = (pendingOnCallExtraSummonUnit != null)
+                ? (string.IsNullOrEmpty(pendingOnCallExtraSummonUnit.cardName)
+                    ? pendingOnCallExtraSummonUnit.name
+                    : pendingOnCallExtraSummonUnit.cardName)
+                : "<null>";
+
+            Debug.Log(
+                $"[OnCallSummon] Extra-summon request from {callerName} (owner={caller.ownerId}) → " +
+                $"count={pendingOnCallExtraSummonCount}, unit={extraName}. " +
+                "Starting tile selection..."
+            );
+
+            var tiles = Game.Match.CardPhase.CardPhaseTileSelectionController.Instance;
+            if (tiles == null)
+            {
+                Debug.LogError("[OnCallSummon] CardPhaseTileSelectionController.Instance is null. Cannot select tiles.");
+                isResolvingOnCallExtraSummons = false;
+                return;
+            }
+
+            // Determine footprint from the extra unit CardSO.
+            int w = Mathf.Clamp(pendingOnCallExtraSummonUnit.sizeW, 1, 4);
+            int h = Mathf.Clamp(pendingOnCallExtraSummonUnit.sizeH, 1, 4);
+
+            // Begin selection: pick exactly N tiles where a w×h rect can fit.
+            tiles.Begin(
+                caller.ownerId,
+                pendingOnCallExtraSummonCount,
+                OnOnCallTilesChosen,
+                w,
+                h
+            );
+        }
+        private void OnOnCallTilesChosen(List<Vector2Int> tiles)
+        {
+            if (tiles == null || tiles.Count == 0)
+            {
+                Debug.LogWarning("[OnCallSummon] Tile selection returned no tiles; cancelling extra summons.");
+                isResolvingOnCallExtraSummons = false;
+                pendingOnCallSummonSource = null;
+                pendingOnCallExtraSummonCount = 0;
+                pendingOnCallExtraSummonUnit = null;
+                return;
+            }
+
+            if (pendingOnCallSummonSource == null || pendingOnCallExtraSummonUnit == null)
+            {
+                Debug.LogWarning("[OnCallSummon] Tiles chosen but pending On-call summon data is missing; aborting.");
+                isResolvingOnCallExtraSummons = false;
+                pendingOnCallSummonSource = null;
+                pendingOnCallExtraSummonCount = 0;
+                pendingOnCallExtraSummonUnit = null;
+                return;
+            }
+
+            var callerSo = pendingOnCallSummonSource.data;
+            string callerName = callerSo != null && !string.IsNullOrEmpty(callerSo.cardName)
+                ? callerSo.cardName
+                : (callerSo != null ? callerSo.name : "<null>");
+
+            string extraName = !string.IsNullOrEmpty(pendingOnCallExtraSummonUnit.cardName)
+                ? pendingOnCallExtraSummonUnit.cardName
+                : pendingOnCallExtraSummonUnit.name;
+
+            Debug.Log(
+                $"[OnCallSummon] Tile selection complete for caller {callerName} (owner={pendingOnCallSummonSource.ownerId}) " +
+                $"→ {tiles.Count} tile(s): {string.Join(", ", tiles)}. Spawning extra units..."
+            );
+
+            int maxToSpawn = Mathf.Min(pendingOnCallExtraSummonCount, tiles.Count);
+
+            for (int i = 0; i < maxToSpawn; i++)
+            {
+                var tile = tiles[i];
+
+                // New CardInstance for each extra unit.
+                int extraOwnerId = pendingOnCallSummonSource.ownerId;
+
+                // Use your existing CardInstance constructor (CardSO, ownerId)
+                var extraInstance = new CardInstance(pendingOnCallExtraSummonUnit, extraOwnerId)
+                {
+                    instanceId = System.Guid.NewGuid().ToString(),
+                    isGeneratedToken = pendingOnCallSummonSource.data != null &&
+                                       pendingOnCallSummonSource.data.onCallExtraSummonsAreTokens
+                };
+
+                Debug.Log(
+                    $"[OnCallSummon] -> Extra unit {extraName} instance={extraInstance.instanceId} " +
+                    $"at tile {tile} (owner={extraInstance.ownerId}, token={extraInstance.isGeneratedToken})."
+                );
+
+                SpawnExtraUnitInstanceAtTile(extraInstance, tile);
+            }
+
+            isResolvingOnCallExtraSummons = false;
+            pendingOnCallSummonSource = null;
+            pendingOnCallExtraSummonCount = 0;
+            pendingOnCallExtraSummonUnit = null;
+        }
+
+        /// <summary>
+        /// Spawns an extra unit instance at the given CardPhase tile, using the same
+        /// 3D spawn + registration pipeline as a normal unit played from hand.
+        /// </summary>
+        private void SpawnExtraUnitInstanceAtTile(CardInstance instance, Vector2Int tile)
+        {
+            if (instance == null || instance.data == null)
+            {
+                Debug.LogWarning("[OnCallSummon] SpawnExtraUnitInstanceAtTile called with null instance or data.");
+                return;
+            }
+
+            var so = instance.data;
+
+            var grid = GameObject.FindObjectOfType<GridService>();
+            if (grid == null)
+            {
+                Debug.LogError("[OnCallSummon] No GridService found in scene; cannot spawn extra unit.");
+                return;
+            }
+
+            // Use the same footprint rules as DraggableCard.GetFootprintInts
+            int w = Mathf.Clamp(so.sizeW, 1, 4);
+            int h = Mathf.Clamp(so.sizeH, 1, 4);
+            if (!grid.CanPlaceRect(tile, w, h))
+            {
+                Debug.LogWarning(
+                    $"[OnCallSummon] Cannot place extra unit {so.cardName} at {tile} (w={w}, h={h}); " +
+                    "rect occupied or out of bounds."
+                );
+                return;
+            }
+
+            grid.PlaceRect(tile, w, h);
+
+            var unitPrefab = so.unitPrefab;
+            if (unitPrefab == null)
+            {
+                Debug.LogError($"[OnCallSummon] CardSO {so.cardName} has no unitPrefab; cannot spawn extra unit.");
+                return;
+            }
+
+            Vector3 center = grid.TileCenterToWorld(tile, 0f)
+                           + new Vector3((w - 1) * 0.5f * grid.TileSize, 0f, (h - 1) * 0.5f * grid.TileSize);
+
+            // Record the placement for the battle layer
+            var reg = BattlePlacementRegistry.Instance;
+            int owner = instance.ownerId;
+            if (reg != null)
+            {
+                // Compute TRUE board center X from bounds (renderer > collider > fallback)
+                float centerX = grid.transform.position.x;
+                var rendGrid = grid.GetComponentInChildren<Renderer>();
+                if (rendGrid != null)
+                {
+                    centerX = rendGrid.bounds.center.x;
+                }
+                else
+                {
+                    var collGrid = grid.GetComponentInChildren<Collider>();
+                    if (collGrid != null)
+                        centerX = collGrid.bounds.center.x;
+                }
+
+                reg.SetLocalBoardCenterX(centerX);
+                reg.Register(instance, center, owner);
+            }
+            else
+            {
+                Debug.LogWarning("[OnCallSummon] BattlePlacementRegistry.Instance is null; placement not recorded for extra unit.");
+            }
+
+            // Parent: use the grid's transform just like DraggableCard does when unitsParent is null.
+            Transform parent = grid.transform;
+            var go = GameObject.Instantiate(unitPrefab, center, Quaternion.identity, parent);
+
+            // Attach graveyard relay to record unit deaths (per-player / per-realm)
+            var gy = go.GetComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+            if (gy == null) gy = go.AddComponent<Game.Match.Graveyard.GraveyardOnDestroy>();
+            gy.source = so;
+            gy.ownerId = owner;
+
+            // Adjust Y so the unit sits on the board surface
+            float groundY = grid.transform.position.y;
+            var col = go.GetComponentInChildren<Collider>();
+            var rendUnit = (col == null) ? go.GetComponentInChildren<Renderer>() : null;
+            float halfH = 0.5f;
+            if (col != null) halfH = col.bounds.extents.y;
+            else if (rendUnit != null) halfH = rendUnit.bounds.extents.y;
+
+            var p = go.transform.position;
+            p.y = groundY + halfH;
+            go.transform.position = p;
+
+            var ur = go.GetComponent<Game.Match.Units.UnitRuntime>();
+            if (ur != null) ur.InitFrom(so);
+
+            // Attach CardPhaseSelectableUnit so this unit can be chosen as a target in CardPhase.
+            CardPhaseSelectableUnit selectable = null;
+            if (col != null)
+            {
+                selectable = col.GetComponent<CardPhaseSelectableUnit>();
+                if (selectable == null)
+                    selectable = col.gameObject.AddComponent<CardPhaseSelectableUnit>();
+            }
+            else
+            {
+                selectable = go.GetComponent<CardPhaseSelectableUnit>();
+                if (selectable == null)
+                    selectable = go.AddComponent<CardPhaseSelectableUnit>();
+            }
+
+            if (selectable != null)
+            {
+                int ownerId = instance.ownerId;
+                selectable.InitializeForCardPhase(ownerId, so, ur);
+
+                // This extra unit counts as "called" for Savage and similar conditions.
+                OnUnitCalledFromCardPhase(so, ownerId);
+
+                Debug.Log(
+                    $"[OnCallSummon] Extra unit {so.cardName} spawned and marked as Called on CardPhase grid for owner={ownerId}."
+                );
+            }
+
+            go.name = $"{so.cardName}_extra_{tile.x}_{tile.y}";
+        }
+
+        /// <summary>
         /// Returns a snapshot list of all unit cards currently in this player's hand.
         /// </summary>
         public List<CardInstance> GetUnitCardsInHand(int ownerIdForEffect)
@@ -181,8 +478,19 @@ namespace Game.Match.State
                 if (ci == null || ci.data == null)
                     continue;
 
-                if (ci.data.type == CardType.Unit)
-                    result.Add(ci);
+                // Only true unit cards
+                if (ci.data.type != CardType.Unit)
+                    continue;
+
+                // Rule: token-only cards should not be treated as normal hand units.
+                if (ci.data.isTokenOnly)
+                    continue;
+
+                // Rule: generated tokens in hand should be ignored by "unit card" costs.
+                if (ci.isGeneratedToken)
+                    continue;
+
+                result.Add(ci);
             }
 
             return result;
@@ -518,6 +826,10 @@ namespace Game.Match.State
                 if (so == null)
                     continue;
 
+                // Skip token-only entries just in case.
+                if (so.isTokenOnly)
+                    continue;
+
                 if (so.type == CardType.Spell && so.isSavageMagic)
                     result.Add(so);
             }
@@ -539,6 +851,10 @@ namespace Game.Match.State
             foreach (var so in deck)
             {
                 if (so == null)
+                    continue;
+
+                // Skip token-only entries just in case.
+                if (so.isTokenOnly)
                     continue;
 
                 if (so.type == CardType.Unit && so.isSavageArchetype)
@@ -577,6 +893,15 @@ namespace Game.Match.State
                     continue;
                 }
 
+                // Hard rule: never put token-only / generated tokens back into the deck.
+                if (ci.data.isTokenOnly || ci.isGeneratedToken)
+                {
+                    Debug.LogWarning(
+                        $"[Turn] ReturnUnitCardsToDeck: refusing to return token-only / generated token card {ci.data.cardName} to deck."
+                    );
+                    continue;
+                }
+
                 bool removed = hand.Remove(ci);
                 if (!removed)
                 {
@@ -602,7 +927,8 @@ namespace Game.Match.State
                 }
 
                 Debug.Log(
-                    $"[Turn] ReturnUnitCardsToDeck: returned {removedCount} unit card(s) to deck bottom. New hand={hand.Count}, deck={deck.Count}"
+                    $"[Turn] ReturnUnitCardsToDeck: returned {removedCount} unit card(s) to deck bottom. " +
+                    $"New hand={hand.Count}, deck={deck.Count}"
                 );
             }
 
@@ -645,13 +971,15 @@ namespace Game.Match.State
 
             foreach (var so in deck)
             {
-                if (so == null) continue;
+                if (so == null)
+                    continue;
 
-                // Magic = Spell type + race Vorg'co
-                if (so.type != CardType.Spell) continue;
-                if (so.race != Race.Vorgco) continue;
+                // Skip token-only entries just in case.
+                if (so.isTokenOnly)
+                    continue;
 
-                result.Add(so);
+                if (so.type == CardType.Spell && so.race == Race.Vorgco)
+                    result.Add(so);
             }
 
             return result;
@@ -664,14 +992,20 @@ namespace Game.Match.State
         public List<CardSO> GetVorgcoUnitsInDeck()
         {
             var result = new List<CardSO>();
+
             foreach (var so in deck)
             {
                 if (so == null)
                     continue;
 
+                // Skip token-only entries just in case.
+                if (so.isTokenOnly)
+                    continue;
+
                 if (so.type == CardType.Unit && so.race == Race.Vorgco)
                     result.Add(so);
             }
+
             return result;
         }
         /// <summary>
@@ -1622,14 +1956,21 @@ namespace Game.Match.State
                 handView.SetHand(hand);
         }
 
-        /// <summary>Fisher–Yates shuffle from deckList into the runtime queue.</summary>
+        /// <summary>
+        /// Build the runtime deck queue from the configured deckList,
+        /// shuffling using shuffleSeed. Token-only cards are never added.
+        /// </summary>
         private void BuildDeck()
         {
             deck.Clear();
-            if (deckList == null || deckList.Count == 0) return;
+
+            if (deckList == null || deckList.Count == 0)
+                return;
 
             var arr = new List<CardSO>(deckList);
             var rng = new System.Random(shuffleSeed);
+
+            // Fisher–Yates shuffle
             for (int i = arr.Count - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
@@ -1637,7 +1978,19 @@ namespace Game.Match.State
             }
 
             foreach (var so in arr)
+            {
+                if (so == null)
+                    continue;
+
+                // Hard rule: token-only CardSOs must never live in the deck.
+                if (so.isTokenOnly)
+                {
+                    Debug.Log($"[Turn] BuildDeck: skipping token-only card {so.cardName}.");
+                    continue;
+                }
+
                 deck.Enqueue(so);
+            }
         }
     }
 }
