@@ -462,7 +462,7 @@ namespace Game.Match.Battle
         /// Apply damage to a unit, remove it from the correct list, fire UnitDied,
         /// and destroy its GameObject if it dies.
         /// Use this for ALL lethal damage (including traps) so the battle flow stays in sync.
-        ///summary>
+        /// </summary>
         public void KillUnit(UnitAgent unit, int damage)
         {
             if (unit == null)
@@ -528,6 +528,36 @@ namespace Game.Match.Battle
                 Realm dyingRealm = dyingCard != null ? dyingCard.realm : rt.realm;
                 bool isVorgcoDeath = dyingCard != null && dyingCard.race == Race.Vorgco;
 
+                // Precompute whether this unit has a configured on-death explosion.
+                bool hasDeathExplosion = false;
+                int explosionDamage = 0;
+                float explosionRadius = 0f;
+                float explosionStunSeconds = 0f;
+
+                if (dyingCard != null &&
+                    dyingCard.type == CardType.Unit &&
+                    dyingCard.hasOnDeathExplosion)
+                {
+                    // Radius
+                    explosionRadius = Mathf.Max(0f, dyingCard.onDeathExplosionRadiusMeters);
+
+                    // Damage (only if enabled)
+                    if (dyingCard.onDeathExplosionDealsDamage)
+                    {
+                        explosionDamage = Mathf.Max(0, dyingCard.onDeathExplosionDamage);
+                    }
+
+                    // Stun (only if enabled)
+                    if (dyingCard.onDeathExplosionStuns)
+                    {
+                        explosionStunSeconds = Mathf.Max(0f, dyingCard.onDeathExplosionStunDurationSeconds);
+                    }
+
+                    hasDeathExplosion =
+                        explosionRadius > 0f &&
+                        (explosionDamage > 0 || explosionStunSeconds > 0f);
+                }
+
                 // Remove from the correct list.
                 if (unit.ownerId == 0)
                     _localUnits.Remove(unit);
@@ -551,6 +581,18 @@ namespace Game.Match.Battle
                         ownerId: unit.ownerId,
                         realm: dyingRealm,
                         stacks: dyingCard.savageStacksOnDeathToSavage
+                    );
+                }
+
+                // On-death explosion (battle-only): damage + stun enemies in radius, and damage towers.
+                if (hasDeathExplosion)
+                {
+                    ApplyDeathExplosion(
+                        dyingUnit: unit,
+                        dyingRuntime: rt,
+                        explosionDamage: explosionDamage,
+                        explosionRadius: explosionRadius,
+                        stunSeconds: explosionStunSeconds
                     );
                 }
 
@@ -846,6 +888,111 @@ namespace Game.Match.Battle
             Debug.Log(
                 $"[Savage] {chosenRuntime.displayName} received {stacks} Savage from a deathrattle " +
                 $"(now {totalStacks} stacks, dmgMult={dmgMult:F2})."
+            );
+        }
+
+        /// <summary>
+        /// Handles the on-death explosion for a unit:
+        /// - Only affects ENEMY units and towers.
+        /// - Uses world-space radius from the dying unit's position.
+        /// - Can deal damage, apply stun, or both.
+        /// </summary>
+        private void ApplyDeathExplosion(
+            UnitAgent dyingUnit,
+            UnitRuntime dyingRuntime,
+            int explosionDamage,
+            float explosionRadius,
+            float stunSeconds)
+        {
+            if (dyingUnit == null || dyingRuntime == null)
+                return;
+
+            if (explosionRadius <= 0f)
+                return;
+
+            // Explosion center is the dying unit's current position in BattleStage.
+            Vector3 center = dyingUnit.transform.position;
+            float radiusSqr = explosionRadius * explosionRadius;
+
+            // Only affect *enemies* of the dying unit (no friendly fire).
+            List<UnitAgent> enemyUnits = dyingUnit.ownerId == 0 ? _remoteUnits : _localUnits;
+            List<BattleTower> enemyTowers = dyingUnit.ownerId == 0 ? _remoteTowers : _localTowers;
+
+            // 1) Collect enemy units in range (so we can safely call KillUnit afterwards).
+            List<UnitAgent> unitsInRange = new List<UnitAgent>();
+
+            if (enemyUnits != null && enemyUnits.Count > 0)
+            {
+                for (int i = 0; i < enemyUnits.Count; i++)
+                {
+                    var enemy = enemyUnits[i];
+                    if (enemy == null)
+                        continue;
+
+                    var enemyRt = enemy.GetComponent<UnitRuntime>();
+                    if (enemyRt == null || enemyRt.GetFinalHealth() <= 0)
+                        continue;
+
+                    float distSqr = SqrDistanceToAgent(enemy, center);
+                    if (distSqr > radiusSqr)
+                        continue;
+
+                    unitsInRange.Add(enemy);
+
+                    // Apply stun immediately (does not modify the unit lists).
+                    if (stunSeconds > 0f && enemyRt.StatusController != null)
+                    {
+                        // Assumes StunStatus takes a duration-in-seconds constructor.
+                        enemyRt.StatusController.AddStatus(new StunStatus(stunSeconds));
+                    }
+                }
+            }
+
+            // 2) Collect enemy towers in range.
+            List<BattleTower> towersInRange = new List<BattleTower>();
+
+            if (enemyTowers != null && enemyTowers.Count > 0)
+            {
+                for (int i = 0; i < enemyTowers.Count; i++)
+                {
+                    var tower = enemyTowers[i];
+                    if (tower == null || tower.currentHp <= 0)
+                        continue;
+
+                    float distSqr = SqrDistanceToTower(tower, center);
+                    if (distSqr > radiusSqr)
+                        continue;
+
+                    towersInRange.Add(tower);
+                }
+            }
+
+            // 3) Apply explosion damage.
+            if (explosionDamage > 0)
+            {
+                // Damage units (this may chain into more explosions if they also have configs).
+                for (int i = 0; i < unitsInRange.Count; i++)
+                {
+                    var enemy = unitsInRange[i];
+                    KillUnit(enemy, explosionDamage);
+                }
+
+                // Damage towers.
+                for (int i = 0; i < towersInRange.Count; i++)
+                {
+                    var tower = towersInRange[i];
+                    tower.ApplyDamage(explosionDamage);
+                    if (tower.currentHp <= 0)
+                    {
+                        tower.currentHp = 0;
+                        OnTowerDestroyed(tower);
+                    }
+                }
+            }
+
+            Debug.Log(
+                $"[DeathExplosion] {dyingRuntime.displayName} exploded (owner={dyingUnit.ownerId}) " +
+                $"radius={explosionRadius:F2}, dmg={explosionDamage}, stun={stunSeconds:F2}."
             );
         }
     }

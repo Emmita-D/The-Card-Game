@@ -220,6 +220,28 @@ namespace Game.Match.Cards
         [Tooltip("If true, units created from this card will start with a Taunt status, drawing aggro from enemy units and towers.")]
         public bool hasInherentTaunt = false;
 
+        [Header("On-Death Explosion (unit-only)")]
+        [Tooltip("If true, this unit triggers an explosion on death in the BattleStage, affecting enemy units and towers in a radius.")]
+        public bool hasOnDeathExplosion = false;
+
+        [Tooltip("Explosion radius in meters around this unit when it dies (BattleStage only).")]
+        [Min(0f)]
+        public float onDeathExplosionRadiusMeters = 2f;
+
+        [Tooltip("If true, the explosion deals damage to enemy units and towers.")]
+        public bool onDeathExplosionDealsDamage = false;
+
+        [Tooltip("Damage dealt by the explosion to enemy units and towers.")]
+        [Min(0)]
+        public int onDeathExplosionDamage = 0;
+
+        [Tooltip("If true, the explosion stuns enemy units hit by it.")]
+        public bool onDeathExplosionStuns = true;
+
+        [Tooltip("Stun duration in seconds for enemy units hit by the explosion.")]
+        [Min(0f)]
+        public float onDeathExplosionStunDurationSeconds = 3f;
+
         [Header("Movement (if Unit)")]
         public MovementType movement = MovementType.Ground;
 

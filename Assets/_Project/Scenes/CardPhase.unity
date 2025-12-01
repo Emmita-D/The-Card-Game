@@ -5028,6 +5028,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 06bec050bf555bd439ba6ba3cfc73862, type: 2}
   - {fileID: 11400000, guid: 06bec050bf555bd439ba6ba3cfc73862, type: 2}
   - {fileID: 11400000, guid: 06bec050bf555bd439ba6ba3cfc73862, type: 2}
+  - {fileID: 11400000, guid: 49bbdaa04829a294ca2cb922d6dd1f29, type: 2}
+  - {fileID: 11400000, guid: 49bbdaa04829a294ca2cb922d6dd1f29, type: 2}
+  - {fileID: 11400000, guid: 49bbdaa04829a294ca2cb922d6dd1f29, type: 2}
   startingHand: 5
   handMax: 10
   ownerId: 0

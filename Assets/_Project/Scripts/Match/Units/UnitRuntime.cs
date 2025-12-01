@@ -42,6 +42,86 @@ namespace Game.Match.Units
         // Source card that created this unit (for per-card effects like Savage on kill, etc.).
         public CardSO SourceCard { get; private set; }
 
+        #region On-Death Explosion (runtime helpers)
+
+        /// <summary>
+        /// Returns true if this unit is configured to trigger an on-death explosion
+        /// in the BattleStage. Purely data-driven from the SourceCard.
+        /// </summary>
+        public bool HasOnDeathExplosion
+        {
+            get
+            {
+                return SourceCard != null
+                    && SourceCard.type == CardType.Unit
+                    && SourceCard.hasOnDeathExplosion;
+            }
+        }
+
+        /// <summary>
+        /// Explosion radius in meters, clamped to >= 0.
+        /// </summary>
+        public float OnDeathExplosionRadiusMeters
+        {
+            get
+            {
+                if (SourceCard == null) return 0f;
+                return Mathf.Max(0f, SourceCard.onDeathExplosionRadiusMeters);
+            }
+        }
+
+        /// <summary>
+        /// True if the explosion should deal damage to enemy units and towers.
+        /// </summary>
+        public bool OnDeathExplosionDealsDamage
+        {
+            get
+            {
+                return SourceCard != null
+                    && SourceCard.onDeathExplosionDealsDamage
+                    && SourceCard.onDeathExplosionDamage > 0;
+            }
+        }
+
+        /// <summary>
+        /// Damage dealt by the explosion to enemy units and towers (>= 0).
+        /// </summary>
+        public int OnDeathExplosionDamage
+        {
+            get
+            {
+                if (SourceCard == null) return 0;
+                return Mathf.Max(0, SourceCard.onDeathExplosionDamage);
+            }
+        }
+
+        /// <summary>
+        /// True if the explosion should stun enemy units hit by it.
+        /// </summary>
+        public bool OnDeathExplosionStuns
+        {
+            get
+            {
+                return SourceCard != null
+                    && SourceCard.onDeathExplosionStuns
+                    && SourceCard.onDeathExplosionStunDurationSeconds > 0f;
+            }
+        }
+
+        /// <summary>
+        /// Stun duration in seconds for enemy units hit by the explosion (>= 0).
+        /// </summary>
+        public float OnDeathExplosionStunDurationSeconds
+        {
+            get
+            {
+                if (SourceCard == null) return 0f;
+                return Mathf.Max(0f, SourceCard.onDeathExplosionStunDurationSeconds);
+            }
+        }
+
+        #endregion
+
         [Header("Savage Ally Support (runtime)")]
         [Tooltip("Next time this unit's low-HP ally heal support effect is ready. Uses Time.time seconds.")]
         public float nextLowHpAllyHealReadyTime = 0f;

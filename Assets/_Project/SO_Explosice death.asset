@@ -1,0 +1,84 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9801325f5c84e7043b3102c1ae01c00a, type: 3}
+  m_Name: SO_Explosice death
+  m_EditorClassIdentifier: Assembly-CSharp::Game.Match.Cards.CardSO
+  cardName: Explosice death
+  rulesText: It's a token
+  type: 0
+  realm: 1
+  race: 1
+  isTokenOnly: 0
+  skipGraveyardOnDeath: 0
+  spellEffect: 0
+  spellSearchRealmFilter: 0
+  spellBuffAttackAmount: 0
+  spellBuffHealthAmount: 0
+  spellBuffLifetimeKind: 0
+  spellBuffDurationSeconds: 0
+  spellBuffAttackCount: 0
+  spellBuffTurnCount: 0
+  isSavageMagic: 0
+  onCallReturn3UnitsSearch2SavageMagic: 0
+  fieldTokenCostKind: 0
+  fieldTokenCostAmount: 0
+  fieldTokenCostSearchSavageUnit: 0
+  fieldTokenCostSearchSavageUnitMaxSelections: 1
+  trapEffect: 0
+  trapDamageAmount: 100
+  trapHpThresholdFraction: 0.5
+  trapGroundDurationSeconds: 10
+  trapSlowPercent: 0.4
+  trapSlowDurationSeconds: 6
+  trapVulnerabilityDamageTakenMultiplier: 1.25
+  trapVulnerabilityDurationSeconds: 6
+  sizeW: 1
+  sizeH: 1
+  manaStars: 0
+  attack: 10
+  health: 20
+  attackMode: 0
+  rangeMeters: 1
+  onCallTargeting: 0
+  onCallSavageStacksToChosenTarget: 0
+  onCallSearchVorgcoUnit: 0
+  onCallSearchVorgcoMagic: 0
+  onCallSummonExtraUnits: 0
+  onCallExtraSummonCount: 0
+  onCallExtraSummonUnit: {fileID: 0}
+  onCallExtraSummonsAreTokens: 1
+  isSavageArchetype: 1
+  costsZeroIfSavageUnitCalledThisTurn: 0
+  savageStacksOnKill: 0
+  savageStacksOnVorgcoDeath: 0
+  savageStacksOnLowHealth: 0
+  savageStacksOnDeathToSavage: 0
+  lowHpAllyHealAmount: 0
+  lowHpAllyHealCooldownSeconds: 0
+  hasInherentTaunt: 0
+  hasOnDeathExplosion: 1
+  onDeathExplosionRadiusMeters: 2
+  onDeathExplosionDealsDamage: 0
+  onDeathExplosionDamage: 0
+  onDeathExplosionStuns: 1
+  onDeathExplosionStunDurationSeconds: 4
+  movement: 0
+  chaseRangeMultiplier: 5
+  frontArcDotThreshold: 0.2
+  canAttackGroundUnits: 1
+  canAttackFlyingUnits: 1
+  canAttackTowers: 1
+  isDiveFlier: 0
+  artSprite: {fileID: 21300000, guid: 4cb6380e2d49cfa43b80021a186c90be, type: 3}
+  unitPrefab: {fileID: 9141055413172558978, guid: 62e94355752fe214c9b801f0b79734c4, type: 3}
+  isLegend: 0
+  realmBonusVsOpposingMultiplier: 1
