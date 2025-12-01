@@ -173,7 +173,12 @@ namespace Game.Match.Battle
         /// <summary>
         /// Returns the closest enemy (unit or tower) in front of us within our aggro range,
         /// that we are actually allowed to attack according to CombatRules.
-        /// Uses currentTarget if still valid, so we don't drop targets that pass behind us.
+        ///
+        /// Taunt-aware rules:
+        /// - If any enemy units with Taunt are valid aggro targets, we only consider those.
+        /// - Towers are considered only if we did not find any Taunt units.
+        ///
+        /// Uses currentTarget if still valid and it has Taunt; otherwise we may retarget.
         /// </summary>
         private Transform FindBestTargetInAggroRange()
         {
@@ -198,16 +203,33 @@ namespace Game.Match.Battle
 
             float chaseRangeSqr = chaseRange * chaseRange;
 
-            // 0) First, see if our current target is still valid (no front-arc restriction for retention).
+            // 0) First, see if our current target is still valid.
+            // We only keep it without re-searching if it is a Taunt unit.
             var validated = ValidateCurrentTarget(chaseRangeSqr, myPos);
             if (validated != null)
-                return validated;
+            {
+                var validatedUnit = validated.GetComponent<UnitAgent>();
+                if (validatedUnit != null)
+                {
+                    var validatedRuntime = validatedUnit.GetComponent<UnitRuntime>();
+                    if (validatedRuntime != null &&
+                        validatedRuntime.StatusController != null &&
+                        validatedRuntime.StatusController.HasTaunt())
+                    {
+                        // Current target is a valid Taunt unit -> keep it.
+                        return validated;
+                    }
+                }
+                // If it's a tower or a non-Taunt unit, we'll re-evaluate targets below.
+            }
 
-            // If we got here, we have no valid current target → search for a new one.
+            // If we got here, we either have no valid current target,
+            // or current target is not Taunt and we want to respect Taunt priority.
             Transform best = null;
             float bestDistSqr = float.MaxValue;
+            bool foundTauntEnemy = false;
 
-            // ---- 1) Consider enemy units ----
+            // ---- 1) Consider enemy units (Taunt-aware) ----
             if (enemyUnits != null)
             {
                 for (int i = 0; i < enemyUnits.Count; i++)
@@ -224,6 +246,12 @@ namespace Game.Match.Battle
                     if (!CombatRules.CanUnitAttackUnit(this, enemy))
                         continue;
 
+                    bool enemyHasTaunt = false;
+                    if (enemyRuntime.StatusController != null)
+                    {
+                        enemyHasTaunt = enemyRuntime.StatusController.HasTaunt();
+                    }
+
                     Vector3 to = enemy.transform.position - myPos;
                     to.y = 0f;
                     float distSqr = to.sqrMagnitude;
@@ -235,16 +263,43 @@ namespace Game.Match.Battle
                     if (dot < _frontArcDotThreshold)
                         continue;
 
-                    if (distSqr < bestDistSqr)
+                    if (foundTauntEnemy)
                     {
-                        bestDistSqr = distSqr;
-                        best = enemy.transform;
+                        // Once we've seen a Taunt unit, ignore non-Taunt units.
+                        if (!enemyHasTaunt)
+                            continue;
+
+                        if (distSqr < bestDistSqr)
+                        {
+                            bestDistSqr = distSqr;
+                            best = enemy.transform;
+                        }
+                    }
+                    else
+                    {
+                        if (enemyHasTaunt)
+                        {
+                            // First Taunt unit we see: switch priority to Taunt-only.
+                            foundTauntEnemy = true;
+                            bestDistSqr = distSqr;
+                            best = enemy.transform;
+                        }
+                        else
+                        {
+                            // No Taunt unit seen yet -> behave like before (nearest valid enemy).
+                            if (distSqr < bestDistSqr)
+                            {
+                                bestDistSqr = distSqr;
+                                best = enemy.transform;
+                            }
+                        }
                     }
                 }
             }
 
             // ---- 2) Consider enemy towers ----
-            if (_cachedTowers != null && _cachedTowers.Length > 0)
+            // Only if we did NOT find any Taunt enemy unit.
+            if (!foundTauntEnemy && _cachedTowers != null && _cachedTowers.Length > 0)
             {
                 for (int i = 0; i < _cachedTowers.Length; i++)
                 {

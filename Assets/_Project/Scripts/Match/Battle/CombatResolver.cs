@@ -144,7 +144,9 @@ namespace Game.Match.Battle
                 UnitAgent bestEnemyUnit = null;
                 BattleTower bestEnemyTower = null;
 
-                // 1) Prefer enemy units
+                // 1) Prefer enemy units (Taunt-aware)
+                bool foundTauntEnemy = false;
+
                 for (int j = 0; j < enemyUnits.Count; j++)
                 {
                     var enemy = enemyUnits[j];
@@ -157,15 +159,53 @@ namespace Game.Match.Battle
                     if (!CombatRules.CanUnitAttackUnit(unit, enemy))
                         continue;
 
-                    float distSqr = SqrDistanceToAgent(enemy, pos);
-                    if (distSqr < bestDistSqr)
+                    // Check if this enemy currently has Taunt.
+                    bool enemyHasTaunt = false;
+                    if (enemyRt.StatusController != null)
                     {
-                        bestDistSqr = distSqr;
-                        bestEnemyUnit = enemy;
-                        bestEnemyTower = null;
+                        enemyHasTaunt = enemyRt.StatusController.HasTaunt();
+                    }
+
+                    float distSqr = SqrDistanceToAgent(enemy, pos);
+
+                    if (foundTauntEnemy)
+                    {
+                        // Once we have seen a Taunt unit, ignore non-taunt targets and
+                        // only look for the closest Taunt unit.
+                        if (!enemyHasTaunt)
+                            continue;
+
+                        if (distSqr < bestDistSqr)
+                        {
+                            bestDistSqr = distSqr;
+                            bestEnemyUnit = enemy;
+                            bestEnemyTower = null;
+                        }
+                    }
+                    else
+                    {
+                        if (enemyHasTaunt)
+                        {
+                            // First Taunt unit we have seen: start prioritising only Taunt.
+                            foundTauntEnemy = true;
+                            bestDistSqr = distSqr;
+                            bestEnemyUnit = enemy;
+                            bestEnemyTower = null;
+                        }
+                        else
+                        {
+                            // No Taunt unit seen yet -> behave like before (nearest enemy).
+                            if (distSqr < bestDistSqr)
+                            {
+                                bestDistSqr = distSqr;
+                                bestEnemyUnit = enemy;
+                                bestEnemyTower = null;
+                            }
+                        }
                     }
                 }
-                // 2) If no enemy units, consider towers
+
+                // 2) If no enemy units (including any with Taunt), consider towers
                 if (bestEnemyUnit == null)
                 {
                     for (int j = 0; j < enemyTowers.Count; j++)
@@ -214,7 +254,7 @@ namespace Game.Match.Battle
 
                     // If we're hitting an enemy unit, also factor in:
                     //  - realm-based permanent bonus
-                    //  - defender's damage-taken multiplier (Vulnerability, Fear, etc.)
+                    //  - defender's damage-taken multiplier (Vulnerability, etc.)
                     UnitRuntime enemyRuntime = null;
                     if (bestEnemyUnit != null)
                     {
@@ -233,72 +273,18 @@ namespace Game.Match.Battle
                         }
                     }
 
-                    // Safety: keep multiplier sane.
-                    if (totalMultiplier <= 0f)
-                        totalMultiplier = 1f;
+                    float finalDamage = baseDamage * totalMultiplier;
+                    finalDamage = Mathf.Max(1f, finalDamage);
 
-                    int damage = Mathf.Max(1, Mathf.RoundToInt(baseDamage * totalMultiplier));
+                    // Convert to int for KillUnit / tower damage.
+                    int damage = Mathf.Max(1, Mathf.RoundToInt(finalDamage));
 
                     if (bestEnemyUnit != null)
                     {
-                        bool willKill = false;
-
-                        if (enemyRuntime != null)
-                        {
-                            int defenderFinalHp = enemyRuntime.GetFinalHealth();
-                            if (damage >= defenderFinalHp)
-                            {
-                                willKill = true;
-                            }
-                        }
-
-                        // --- On-kill: award Savage stacks to the attacker, if configured on the card ---
-                        if (willKill && runtime.StatusController != null)
-                        {
-                            var attackerCard = unit.sourceCard;
-                            if (attackerCard != null && attackerCard.savageStacksOnKill > 0)
-                            {
-                                runtime.StatusController.AddSavageStacks(attackerCard.savageStacksOnKill);
-
-                                int stacks = runtime.StatusController.GetSavageStacks();
-                                float dmgMultAfter = runtime.GetDamageDealtMultiplier();
-                                UnityEngine.Debug.Log(
-                                    $"[Savage] {runtime.displayName} gained {attackerCard.savageStacksOnKill} Savage on kill " +
-                                    $"(total={stacks}, dmgMult={dmgMultAfter:F2})"
-                                );
-                            }
-                            else
-                            {
-                                UnityEngine.Debug.Log(
-                                    $"[Savage] {runtime.displayName} landed a lethal hit but attackerCard is null " +
-                                    $"or savageStacksOnKill == 0."
-                                );
-                            }
-                        }
-                        // --- END on-kill logic ---
-
-                        // --- Savage 5+ stun on NON-lethal hits (unit vs unit only) ---
-                        if (!willKill &&
-                            runtime.StatusController != null &&
-                            enemyRuntime != null &&
-                            enemyRuntime.StatusController != null)
-                        {
-                            if (runtime.StatusController.TryProcSavageStun())
-                            {
-                                // Apply a 2-second stun to the defender.
-                                enemyRuntime.StatusController.AddStatus(new StunStatus(2f));
-
-                                UnityEngine.Debug.Log(
-                                    $"[Savage] {runtime.displayName} triggered Savage 5+ stun on {enemyRuntime.displayName}."
-                                );
-                            }
-                        }
-                        // --- END Savage 5+ stun logic ---
-
-                        // Use shared kill helper so UnitDied + list cleanup are consistent.
+                        // Use shared kill helper so Savage hooks & list cleanup stay consistent.
                         KillUnit(bestEnemyUnit, damage);
                     }
-                    else // tower
+                    else if (bestEnemyTower != null)
                     {
                         bestEnemyTower.ApplyDamage(damage);
                         if (bestEnemyTower.currentHp <= 0)
@@ -331,10 +317,14 @@ namespace Game.Match.Battle
             if (HasAliveUnits(friendlyUnitsForGate))
                 return;
 
+            if (towers == null || towers.Count == 0)
+                return;
+
             for (int i = 0; i < towers.Count; i++)
             {
                 var tower = towers[i];
-                if (tower == null || tower.currentHp <= 0) continue;
+                if (tower == null || tower.currentHp <= 0)
+                    continue;
 
                 if (Time.time < tower.nextAttackTime)
                     continue;
@@ -346,34 +336,81 @@ namespace Game.Match.Battle
                 float bestDistSqr = float.MaxValue;
                 UnitAgent bestEnemyUnit = null;
                 BattleTower bestEnemyTower = null;
+                bool foundTauntEnemy = false;
 
-                // Prefer enemy units
-                for (int j = 0; j < enemyUnits.Count; j++)
+                // 1) Consider enemy units (Taunt-aware)
+                if (enemyUnits != null)
                 {
-                    var enemy = enemyUnits[j];
-                    if (enemy == null) continue;
-
-                    var rt = enemy.GetComponent<UnitRuntime>();
-                    if (rt == null || rt.GetFinalHealth() <= 0) continue;
-
-                    float distSqr = SqrDistanceToAgent(enemy, pos);
-                    if (distSqr < bestDistSqr)
+                    for (int j = 0; j < enemyUnits.Count; j++)
                     {
-                        bestDistSqr = distSqr;
-                        bestEnemyUnit = enemy;
-                        bestEnemyTower = null;
+                        var enemy = enemyUnits[j];
+                        if (enemy == null)
+                            continue;
+
+                        var rt = enemy.GetComponent<UnitRuntime>();
+                        if (rt == null || rt.GetFinalHealth() <= 0)
+                            continue;
+
+                        float distSqr = SqrDistanceToAgent(enemy, pos);
+                        if (distSqr > rangeSqr)
+                            continue;
+
+                        bool enemyHasTaunt = false;
+                        if (rt.StatusController != null)
+                        {
+                            enemyHasTaunt = rt.StatusController.HasTaunt();
+                        }
+
+                        if (foundTauntEnemy)
+                        {
+                            // Once we have seen a Taunt unit, ignore non-Taunt units.
+                            if (!enemyHasTaunt)
+                                continue;
+
+                            if (distSqr < bestDistSqr)
+                            {
+                                bestDistSqr = distSqr;
+                                bestEnemyUnit = enemy;
+                                bestEnemyTower = null;
+                            }
+                        }
+                        else
+                        {
+                            if (enemyHasTaunt)
+                            {
+                                // First Taunt unit we have seen: switch to Taunt-only.
+                                foundTauntEnemy = true;
+                                bestDistSqr = distSqr;
+                                bestEnemyUnit = enemy;
+                                bestEnemyTower = null;
+                            }
+                            else
+                            {
+                                // No Taunt seen yet -> behave like before (nearest valid enemy unit).
+                                if (distSqr < bestDistSqr)
+                                {
+                                    bestDistSqr = distSqr;
+                                    bestEnemyUnit = enemy;
+                                    bestEnemyTower = null;
+                                }
+                            }
+                        }
                     }
                 }
 
-                // If no enemy units, target an enemy tower
-                if (bestEnemyUnit == null)
+                // 2) If we did NOT find any Taunt enemy units, consider enemy towers
+                if (!foundTauntEnemy && enemyTowers != null)
                 {
                     for (int j = 0; j < enemyTowers.Count; j++)
                     {
                         var et = enemyTowers[j];
-                        if (et == null || et.currentHp <= 0) continue;
+                        if (et == null || et.currentHp <= 0)
+                            continue;
 
                         float distSqr = SqrDistanceToTower(et, pos);
+                        if (distSqr > rangeSqr)
+                            continue;
+
                         if (distSqr < bestDistSqr)
                         {
                             bestDistSqr = distSqr;

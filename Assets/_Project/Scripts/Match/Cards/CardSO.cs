@@ -216,6 +216,10 @@ namespace Game.Match.Cards
         [Min(0f)]
         public float lowHpAllyHealCooldownSeconds = 0f;
 
+        [Header("Taunt (unit-only)")]
+        [Tooltip("If true, units created from this card will start with a Taunt status, drawing aggro from enemy units and towers.")]
+        public bool hasInherentTaunt = false;
+
         [Header("Movement (if Unit)")]
         public MovementType movement = MovementType.Ground;
 

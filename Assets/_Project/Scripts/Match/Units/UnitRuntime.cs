@@ -95,6 +95,15 @@ namespace Game.Match.Units
             }
 
             gameObject.name = $"{so.cardName}_Unit";
+
+            // Apply inherent Taunt if configured on the card.
+            // This uses the status system so all Taunt behaviour goes through UnitStatusController.HasTaunt().
+            if (StatusController != null &&
+                so.type == CardType.Unit &&
+                so.hasInherentTaunt)
+            {
+                StatusController.AddStatus(new TauntStatus());
+            }
         }
 
         private void Update()

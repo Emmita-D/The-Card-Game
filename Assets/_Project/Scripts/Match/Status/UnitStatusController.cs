@@ -196,6 +196,24 @@ namespace Game.Match.Status
             return false;
         }
 
+        /// <summary>
+        /// Returns true if this unit currently has Taunt.
+        /// A unit has Taunt if it has at least one non-expired TauntStatus.
+        /// </summary>
+        public bool HasTaunt()
+        {
+            for (int i = 0; i < activeStatuses.Count; i++)
+            {
+                var taunt = activeStatuses[i] as TauntStatus;
+                if (taunt != null && !taunt.IsExpired)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public StatModifier GetTotalModifiers()
         {
             StatModifier total = StatModifier.None;
